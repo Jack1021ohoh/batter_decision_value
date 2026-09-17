@@ -33,35 +33,123 @@ unchanged.
 
 ### 0.1 Data and split
 
-Five regular seasons, 2021–2025. Stop at 2025: the ABS challenge system starts
-in 2026 and changes the called-strike process.
+Six regular seasons, 2021–2026. 2026 is the ABS-challenge era and is the test
+season; see §0.1.1 for the measurement changes that must be harmonized first.
 
 | Role | Seasons | Use |
 |---|---|---|
-| Train | 2021–2023 | fit all models |
-| Validate | 2024 | calibration, early stopping, model selection, feature decisions |
-| Test | 2025 | final evaluation only; not touched during development |
+| Train | 2021–2024 | fit all sub-models (CV stage) |
+| Validate | 2025 | calibration, early stopping, feature and hyperparameter decisions — **and** the in-regime held-out reference |
+| Test | 2026 | final evaluation, out-of-sample **and** out-of-regime |
 
-- Add a 2025 pull to `data_fetch.ipynb` (`statcast('2025-03-18','2025-09-28')`)
-  and filter `game_type == 'R'` for every season.
+- Add pulls for 2025 and 2026 to `data_fetch.ipynb`; filter
+  `game_type == 'R'` for every season. 2026 is ~95% complete as of
+  2026-09-17 — re-pull after the regular-season finale.
 - Drop pitchers batting (2021 NL). Drop 3-strike / 4-ball rows as now.
 - Hitter-level features (nitro zone, contact-quality surface, prior bat speed)
-  for season *t* are built from seasons < *t* only.
-- Stability checks use three season pairs (22→23, 23→24, 24→25), not one.
+  for season *t* are built from seasons < *t* only. More seasons of history is
+  the real benefit of extending the data: the league-level sub-models are
+  saturated by ~2M pitches, but the per-batter contact-quality surface is
+  estimated from a few hundred balls in play per batter-season, so a 2021–25
+  prior window for scoring 2026 is materially better than a 2021–23 one.
+- Stability checks use four season pairs (22→23, 23→24, 24→25 in-regime, and
+  25→26 across the regime change).
+
+#### 0.1.1 2026 measurement harmonization (do before anything else)
+
+Three things changed in 2026, and the feature changes matter more than the
+label change. From the Statcast CSV docs, verbatim:
+
+- `plate_x` / `plate_z`: "Through 2025, this was front-of-plate. From 2026 on,
+  this is middle-of-plate to align with the ABS system."
+- `sz_top` / `sz_bot`: through 2025 operator-set when the ball is halfway to
+  the plate; "From 2026 on, this is the top/bottom of the batter's ABS-defined
+  strike zone."
+- Called strikes can now be overturned by challenge (a low single-digit share
+  of pitches — real, but small next to the feature redefinition).
+
+The reference plane moved back ~8.5 inches, and the shift is pitch-dependent
+(a curveball is several inches lower at middle-of-plate than at front-of-plate;
+a four-seamer barely moves), so it is **not** a constant offset that can be
+subtracted.
+
+Fix: recompute location at one common plane for all six seasons from the
+9-parameter trajectory (`x0,y0,z0,vx0,vy0,vz0,ax,ay,az`), which Statcast still
+ships. Use middle-of-plate (`y_ref = 8.5/12`) since that is where the game is
+going:
+
+```python
+t     = (-vy0 - np.sqrt(vy0**2 - 2*ay*(y0 - y_ref))) / ay
+x_ref = x0 + vx0*t + 0.5*ax*t**2
+z_ref = z0 + vz0*t + 0.5*az*t**2
+```
+
+Use `x_ref` / `z_ref` everywhere in place of `plate_x` / `plate_z`. This also
+removes the front/middle inconsistency as a noise source in 2021–25.
+
+For the zone, derive `sz_top` / `sz_bot` from batter height for every season
+rather than mixing operator-set with ABS-defined values. The ABS zone is a
+fixed percentage band of height (reported as roughly 27%–53.5% at the middle
+of the plate) — **verify the exact figures before relying on them.**
+
+#### 0.1.2 Model selection: rolling-origin CV
+
+Do not pick a single validation season. Roll the origin so every design
+decision gets three chronological estimates and no season is wasted:
+
+```
+train 2021–22 → validate 2023
+train 2021–23 → validate 2024
+train 2021–24 → validate 2025
+```
+
+If the folds show drift, weight recent seasons more or add a season index.
+
+#### 0.1.3 Final refit and the A/B protocol
+
+Keep **two** models. Refitting on everything through 2025 destroys the
+in-regime reference, because 2025 becomes in-sample and its calibration is no
+longer comparable to 2026.
+
+| | Trained on | Used for |
+|---|---|---|
+| Model A | 2021–2024 | held-out 2025 metrics = in-regime reference |
+| Model B | 2021–2025 | final 2026 leaderboard |
+
+Score 2026 with **both**. That isolates each effect:
+
+- A on 2025 vs. A on 2026 → same model, different regime = the ABS effect.
+- A on 2026 vs. B on 2026 → same regime, different training data = what the
+  extra season bought.
+- B on 2026 → the published leaderboard.
+
+Comparing A/2025 against B/2026 changes two things at once and attributes
+nothing.
+
+For Model B there is no held-out season left for early stopping: fix the round
+count from the CV folds (mean best iteration, scaled up ~10–15% for the larger
+training set) and keep hyperparameters locked from the CV stage. Re-tuning here
+turns the refit into another selection pass.
+
+**One-shot rule.** 2026 is scored once per model, after every feature and
+hyperparameter decision is locked. Adjusting anything because the 2026 numbers
+looked wrong makes 2026 a validation set and the final evaluation dishonest.
 
 ### 0.2 Run-value lookup
 
-`RE(outcome, count)` = mean Statcast `delta_run_exp` by `(des_new, count)`,
-computed **once on 2021–2023** and applied to every season (v3 recomputes it
-per year inside `df_clean`, so 2024 targets use 2024 means). Map `field_error`
-separately rather than to `field_out`. Keep HBP as its own outcome.
+`RE(outcome, count)` = mean Statcast `delta_run_exp` by `(des_new, count)`.
+Compute it on the training seasons of whichever model is being fit (2021–24 for
+Model A, 2021–25 for Model B), apply the same table to every season that model
+scores, and never let 2026 into it. v3 recomputes it per year inside
+`df_clean`, so 2024 targets use 2024 means. Map `field_error` separately rather
+than to `field_out`. Keep HBP as its own outcome.
 
 ### 0.3 Pitch frame (used by both tracks)
 
 | Feature | Why |
 |---|---|
-| `plate_x_b = −plate_x if stand == 'R' else plate_x` | Statcast `plate_x` is catcher-relative; `+0.7` is outside to RHB, inside to LHB. Positive = inside for everyone. |
-| `plate_z_n = (plate_z − sz_bot) / (sz_top − sz_bot)` | 3.4 ft is a strike to a 6'4" hitter and a ball to a 5'7" one. |
+| `plate_x_b = −x_ref if stand == 'R' else x_ref` | Statcast `plate_x` is catcher-relative; `+0.7` is outside to RHB, inside to LHB. Positive = inside for everyone. Built on the harmonized `x_ref` (§0.1.1), not raw `plate_x`. |
+| `plate_z_n = (z_ref − sz_bot) / (sz_top − sz_bot)` | 3.4 ft is a strike to a 6'4" hitter and a ball to a 5'7" one. Height-derived zone bounds (§0.1.1). |
 | `stand`, `p_throws` | Lefty-strike asymmetry; platoon. |
 | `release_speed`, `pfx_x`, `pfx_z`, `pitch_type` | Observable at decision time. Main role is reducing swing-side confounding (hitters swing when they see the pitch, take when fooled). |
 | `count` | as now |
@@ -87,7 +175,7 @@ This replaces v3 cells 74–75 (takes-only rate) and v3 cell 79
 
 ### 0.5 Evaluation harness (run on every model, every track)
 
-Sub-model level (validate on 2024, final on 2025):
+Sub-model level (rolling-origin CV per §0.1.2, final on 2026 per §0.1.3):
 - Called strike: log loss, Brier, reliability diagram; by count, `stand`, zone
   region.
 - Swing outcome (Track B): multiclass log loss, per-class calibration.
@@ -100,7 +188,10 @@ Sub-model level (validate on 2024, final on 2025):
 
 Player-metric level:
 - Split-half reliability within season (odd/even PAs, Spearman–Brown).
-- YoY R² for each of the three season pairs.
+- YoY R² for each of the four season pairs (22→23, 23→24, 24→25, 25→26).
+- Regime comparison: Model A's 2025 vs. 2026 readout (§0.1.3).
+- Note when a season's player metric is in-sample for the model scoring it
+  (mild optimism; small here since the league models carry no batter identity).
 - Predictive validity: season-*t* metric → season-*t+1* wOBA, BB%, K%, chase
   rate, controlling for season-*t* wOBA.
 - **Zone% test**: `|corr(metric, Zone%)|` — the SOTO failure mode. Report for
@@ -121,12 +212,13 @@ Establishes the baseline number. Target: YoY R² ≥ 0.57 on 22→23.
 
 ### A2. Pitch frame (§0.3)
 Add in three steps and score each: zone frame + handedness → pitch
-characteristics. Keep whichever help on 2024.
+characteristics. Keep whichever help across the CV folds (§0.1.2).
 
 ### A3. Take model: verify or replace
 The take target is `RE(ball|CS|HBP, count)`, so given location and count the
 only thing the take model learns from location is `P(CS | s)`; count-specific
-run value comes from the lookup via the `count` feature. Verify on 2024:
+run value comes from the lookup via the `count` feature. Verify on the CV
+validation folds:
 regress `take_pred` on `called_strike_prob` within each count — expect a
 near-perfect line (slope ≈ `RE(CS,c) − RE(ball,c)`). If R² < ~0.95, replace the
 LightGBM take regressor with the structural form
@@ -208,7 +300,9 @@ Add prior-season hitter features to the contact-quality sub-model only:
   empirical-Bayes toward the league surface by BIP count (continuous
   replacement for the hull; degrades to league average for rookies).
 - Rolling prior-season contact%, whiff%, damage rate.
-- Prior-season bat speed (2025 only; 2024 is the first season it exists).
+- Prior-season bat speed. 2024 is the first season it exists, so it is
+  available as a prior for 2025 and 2026 only; keep it out of earlier seasons
+  rather than imputing.
 
 Report **generic** and **personalized** decision value as two metrics
 (related-work §5.3). A power hitter can correctly swing at a pitch that is
@@ -240,7 +334,7 @@ SEAGER/SwRV-style metrics, and Statcast Swing/Take.
 
 | Step | Track | Output |
 |---|---|---|
-| 1 | 0 | 2025 pull, `game_type` filter, single RE lookup, pitch-frame features, `src/` skeleton, harness |
+| 1 | 0 | 2025 + 2026 pulls, `game_type` filter, trajectory harmonization (§0.1.1), RE lookup, pitch-frame features, `src/` skeleton, harness, rolling-origin CV scaffold |
 | 2 | baselines | Creally + v1 + O-Swing% on the harness |
 | 3 | A1–A2 | metric fix; pitch-frame features scored |
 | 4 | A3 | take-model verification → structural `Q_take` (shared with B) |
@@ -250,7 +344,7 @@ SEAGER/SwRV-style metrics, and Statcast Swing/Take.
 | 8 | B4 | personalized contact quality; generic vs personalized readout |
 | 9 | B5 | overlap diagnostics; IPW comparison |
 | 10 | B3.2 | policy-evaluation version if needed |
-| 11 | all | final 2025 evaluation; README/CLAUDE.md updated to match |
+| 11 | all | Model A/B refit (§0.1.3), one-shot 2026 evaluation, ABS regime comparison; README/CLAUDE.md updated to match |
 
 Steps 3–4 and 5 can run in parallel; A3's structural take model is reused by B.
 
@@ -259,12 +353,12 @@ Steps 3–4 and 5 can run in parallel; A3's structural take model is reused by B
 ## Scorecard
 
 Fill one row per variant; all numbers from the same harness. Validate columns
-on 2024 during development; 2025 only at the end.
+from the CV folds during development; 2026 only at the end, once per model.
 
-| Variant | CS log loss | Swing-side RMSE vs count-only | Split-half r | YoY R² (22→23 / 23→24 / 24→25) | Zone% corr | Next-yr wOBA partial r |
+| Variant | CS log loss | Swing-side RMSE vs count-only | Split-half r | YoY R² (22→23 / 23→24 / 24→25 / 25→26) | Zone% corr | Next-yr wOBA partial r |
 |---|---|---|---|---|---|---|
-| v3 as-is | — | 0.296 / ? | ? | 0.16 / ? / ? | ? | ? |
-| v1 | — | | | 0.57 / ? / ? | | |
+| v3 as-is | — | 0.296 / ? | ? | 0.16 / ? / ? / ? | ? | ? |
+| v1 | — | | | 0.57 / ? / ? / ? | | |
 | Creally 5-zone | — | | | | | |
 | A1 metric fix | | | | | | |
 | A2 + pitch frame | | | | | | |
@@ -279,7 +373,7 @@ on 2024 during development; 2025 only at the end.
 
 ```
 src/
-  data.py        load, game_type filter, cleaning, RE lookup
+  data.py        load, game_type filter, trajectory harmonization, cleaning, RE lookup
   features.py    pitch frame, attack zones, hitter priors (nitro hull, EV surface)
   models_a.py    Track A: two regressors
   models_b.py    Track B: called-strike, swing-outcome, contact-quality
@@ -305,6 +399,12 @@ clear notebook outputs before commit.
 - The swing model learns a league-average, pitch-averaged counterfactual;
   personalization is a separate, explicitly labeled metric.
 - Random pitch-level split was not leaking in v3 (train ≈ test RMSE); the
-  chronological split is adopted for the prior-season hitter features, not
-  because of v3 leakage.
+  chronological split is adopted for the prior-season hitter features and for
+  the out-of-regime 2026 test, not because of v3 leakage.
+- 2026 is usable despite ABS, but only after trajectory harmonization
+  (§0.1.1); raw `plate_x`/`plate_z` must never be pooled across the 2025/2026
+  boundary. Extending the data helps the hitter-specific surfaces, not the
+  league sub-models, which are already saturated.
+- Two models are kept at the end (A: 2021–24, B: 2021–25) so the in-regime
+  reference survives the final refit; 2026 is scored once per model.
 - Realized bat speed / EV on the swing being graded is never a feature.

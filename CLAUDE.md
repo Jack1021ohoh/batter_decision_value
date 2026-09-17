@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A notebook-only research project that scores MLB batters' swing/take decisions
-from Statcast pitch data (2021–2024, extending to 2025). There is no package,
+from Statcast pitch data (2021–2024 as built; the v4 plan extends to 2026).
+There is no package,
 build, lint, or test suite — everything lives in Jupyter notebooks.
 
 Two planning documents govern the next iteration (v4) and should be read before
@@ -70,6 +71,12 @@ leaderboard, not for model evaluation.
 - Statcast `plate_x` is from the catcher's view: positive = first-base side, so
   the same value is inside to a LHB and outside to a RHB. Neither `stand` nor
   `sz_top`/`sz_bot` is used yet (planned: IMPROVEMENT_PLAN.md §0.3).
+- **2026 data is not comparable to earlier seasons as-is.** Per Statcast's CSV
+  docs, `plate_x`/`plate_z` moved from front-of-plate to middle-of-plate in
+  2026, and `sz_top`/`sz_bot` switched from operator-set to the ABS-defined
+  zone. The shift is pitch-dependent, so it cannot be subtracted off; recompute
+  location at a common plane from the trajectory parameters first
+  (IMPROVEMENT_PLAN.md §0.1.1).
 - Strike-zone overlay for plots is fixed at x ∈ [−0.708, 0.708], z ∈ [1.5, 3.5]
   (`strike_zone` df + `draw_line`).
 - `y_pred` on 2024 uses a nitro hull built from 2024 itself; on training years
