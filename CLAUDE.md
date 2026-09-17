@@ -33,9 +33,18 @@ proposing methodology changes:
   `pybaseball.statcast` all tested under pandas 3.
 - The `baseball_env` kernel named in the old notebooks' metadata (Python 3.11)
   predates this; point notebooks at the uv venv instead.
-- Data is **not** in the repo. `data_fetch.ipynb` pulls one regular season per
-  cell via `pybaseball.statcast(start, end)` and writes `./data/<year>_data.csv`.
-  Each pull is slow (a full season) — run only the years you need.
+- Data is **not** in the repo. `data_fetch.ipynb` writes
+  `./data/<year>_data.csv`. The 2021–2024 cells are the original raw pulls;
+  2025 onward go through `fetch_season(year)`, which takes the season date
+  range from the MLB Stats API, keeps `game_type == 'R'`, and drops overseas
+  games. Each pull is slow (a full season) — run only the years you need.
+- **Overseas games are excluded** (temporary tracking installations): Mexico
+  City, London, Seoul, Tokyo. Toronto is kept — Rogers Centre is a permanent
+  park. The filter is `country not in {USA, Canada}`, resolved by a
+  `game_pk` → venue lookup against the Stats API, because the pitch-level
+  export has no venue column and international series use neutral sites where
+  `home_team` is still an MLB club. `drop_overseas()` in `data_fetch.ipynb`;
+  re-run the last cell to apply it to the pre-existing 2023/2024 CSVs.
 - The analysis notebooks start with `%cd C:/Users/citioplab/works/codes/baseball_projects/`
   (a hardcoded Windows path). Change or delete that cell so `./data/` resolves
   from the repo root.

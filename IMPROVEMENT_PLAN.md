@@ -45,6 +45,14 @@ season; see §0.1.1 for the measurement changes that must be harmonized first.
 - Add pulls for 2025 and 2026 to `data_fetch.ipynb`; filter
   `game_type == 'R'` for every season. 2026 is ~95% complete as of
   2026-09-17 — re-pull after the regular-season finale.
+- **Exclude overseas games** (tracking is a temporary installation there, so
+  calibration may differ): Mexico City 2023/2024/2026, London 2023/2024,
+  Seoul 2024, Tokyo 2025 — 14 games over the six seasons. Toronto is **kept**:
+  Rogers Centre is a permanent park with a permanent Hawk-Eye rig. Implemented
+  as `country not in {USA, Canada}` via a `game_pk` → venue lookup from the
+  MLB Stats API (`/schedule?hydrate=venue(location)`), since the pitch-level
+  Statcast export carries no venue field and international series are played
+  at neutral sites where `home_team` is still an MLB club.
 - Drop pitchers batting (2021 NL). Drop 3-strike / 4-ball rows as now.
 - Hitter-level features (nitro zone, contact-quality surface, prior bat speed)
   for season *t* are built from seasons < *t* only. More seasons of history is
