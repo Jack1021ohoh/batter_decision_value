@@ -1,5 +1,8 @@
-# Data (pulled via data_fetch; large, not versioned)
-data/
+# Data (pulled via data_fetch; large, not versioned).
+# The directory itself is tracked via .gitkeep so fetch_season() has somewhere
+# to write on a fresh clone; everything in it stays local.
+data/*
+!data/.gitkeep
 *.csv
 *.parquet
 
