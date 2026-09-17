@@ -42,9 +42,9 @@ season; see §0.1.1 for the measurement changes that must be harmonized first.
 | Validate | 2025 | calibration, early stopping, feature and hyperparameter decisions — **and** the in-regime held-out reference |
 | Test | 2026 | final evaluation, out-of-sample **and** out-of-regime |
 
-- Add pulls for 2025 and 2026 to `data_fetch.ipynb`; filter
-  `game_type == 'R'` for every season. 2026 is ~95% complete as of
-  2026-09-17 — re-pull after the regular-season finale.
+- `data_fetch.ipynb` pulls every season through one `fetch_season(year)`
+  helper (API-derived date range, `game_type == 'R'`, overseas games dropped).
+  2026 is ~95% complete as of 2026-09-17 — re-pull after the finale.
 - **Exclude overseas games** (tracking is a temporary installation there, so
   calibration may differ): Mexico City 2023/2024/2026, London 2023/2024,
   Seoul 2024, Tokyo 2025 — 14 games over the six seasons. Toronto is **kept**:

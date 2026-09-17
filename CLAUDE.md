@@ -34,17 +34,19 @@ proposing methodology changes:
 - The `baseball_env` kernel named in the old notebooks' metadata (Python 3.11)
   predates this; point notebooks at the uv venv instead.
 - Data is **not** in the repo. `data_fetch.ipynb` writes
-  `./data/<year>_data.csv`. The 2021–2024 cells are the original raw pulls;
-  2025 onward go through `fetch_season(year)`, which takes the season date
-  range from the MLB Stats API, keeps `game_type == 'R'`, and drops overseas
-  games. Each pull is slow (a full season) — run only the years you need.
+  `./data/<year>_data.csv` for every season through one `fetch_season(year)`
+  helper: season date range from the MLB Stats API, `game_type == 'R'`,
+  overseas games dropped. Edit `YEARS` in the pull cell — each season is a slow
+  download. It returns the output path, not the frame, since a season is ~700k
+  rows × ~119 columns.
 - **Overseas games are excluded** (temporary tracking installations): Mexico
   City, London, Seoul, Tokyo. Toronto is kept — Rogers Centre is a permanent
   park. The filter is `country not in {USA, Canada}`, resolved by a
   `game_pk` → venue lookup against the Stats API, because the pitch-level
   export has no venue column and international series use neutral sites where
-  `home_team` is still an MLB club. `drop_overseas()` in `data_fetch.ipynb`;
-  re-run the last cell to apply it to the pre-existing 2023/2024 CSVs.
+  `home_team` is still an MLB club. `drop_overseas()` in `data_fetch.ipynb`.
+  Any CSV pulled before this filter existed (2023/2024 contain overseas games)
+  is stale — re-run `fetch_season()` for those years.
 - The analysis notebooks start with `%cd C:/Users/citioplab/works/codes/baseball_projects/`
   (a hardcoded Windows path). Change or delete that cell so `./data/` resolves
   from the repo root.
