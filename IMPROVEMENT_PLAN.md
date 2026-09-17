@@ -68,29 +68,54 @@ label change. From the Statcast CSV docs, verbatim:
 - Called strikes can now be overturned by challenge (a low single-digit share
   of pitches — real, but small next to the feature redefinition).
 
-The reference plane moved back ~8.5 inches, and the shift is pitch-dependent
-(a curveball is several inches lower at middle-of-plate than at front-of-plate;
-a four-seamer barely moves), so it is **not** a constant offset that can be
-subtracted.
+**Measured size of the shift** (2026-09-17, one June day per era, ~4.5k
+pitches each, method below):
 
-Fix: recompute location at one common plane for all six seasons from the
-9-parameter trajectory (`x0,y0,z0,vx0,vy0,vz0,ax,ay,az`), which Statcast still
-ships. Use middle-of-plate (`y_ref = 8.5/12`) since that is where the game is
-going:
+| | mean | p5 / p95 | by pitch type |
+|---|---|---|---|
+| vertical (`dz`, front→middle) | **−1.00 in** (2025), −0.94 in (2026) | −1.54 / −0.56 in | FF −0.70 in … CU −1.50 in |
+| horizontal (`dx`) | +0.15 in | \|dx\| p95 0.69 in | negligible |
+
+So the ball sits about **one inch lower** at middle-of-plate than at
+front-of-plate, with a **~0.8 in pitch-type-dependent spread** (fastballs move
+least, curveballs most). This is a modest correction, not a catastrophic
+incompatibility — but it is worth making, because called-strike probability is
+steep at the zone edge and the bias correlates with pitch type, so it cannot be
+absorbed by a constant offset.
+
+**Fix — convert 2021–25 forward to middle-of-plate.** The plane-to-plane shift
+depends only on velocity and acceleration, not on absolute position, so it is
+computed exactly and added to the existing `plate_x` / `plate_z`:
 
 ```python
-t     = (-vy0 - np.sqrt(vy0**2 - 2*ay*(y0 - y_ref))) / ay
-x_ref = x0 + vx0*t + 0.5*ax*t**2
-z_ref = z0 + vz0*t + 0.5*az*t**2
+Y0, FRONT, MIDDLE = 50.0, 17/12, 8.5/12   # vx0..az are specified at y = 50 ft
+
+def _t_to(df, y_ref):
+    return (-df.vy0 - np.sqrt(df.vy0**2 - 2*df.ay*(Y0 - y_ref))) / df.ay
+
+def to_middle(df):                         # seasons <= 2025 only
+    ta, tb = _t_to(df, FRONT), _t_to(df, MIDDLE)
+    dt, dt2 = tb - ta, tb**2 - ta**2
+    return (df.plate_x + df.vx0*dt + 0.5*df.ax*dt2,
+            df.plate_z + df.vz0*dt + 0.5*df.az*dt2)
 ```
 
-Use `x_ref` / `z_ref` everywhere in place of `plate_x` / `plate_z`. This also
-removes the front/middle inconsistency as a noise source in 2021–25.
+2026 rows are already middle-of-plate and pass through unchanged. Use the
+resulting `x_ref` / `z_ref` everywhere in place of `plate_x` / `plate_z`.
+
+Do **not** anchor the propagation at `release_pos_x/y/z`: Statcast specifies
+`vx0…az` at y = 50 ft, not at the release point (~54 ft), so mixing the two
+gives inconsistent positions. The delta form above avoids the anchor entirely.
+All required fields (`vx0,vy0,vz0,ax,ay,az`) are present in 2026 pulls —
+verified.
 
 For the zone, derive `sz_top` / `sz_bot` from batter height for every season
 rather than mixing operator-set with ABS-defined values. The ABS zone is a
 fixed percentage band of height (reported as roughly 27%–53.5% at the middle
-of the plate) — **verify the exact figures before relying on them.**
+of the plate) — **verify the exact figures before relying on them.** Sanity
+check already observed: 2026 `sz_top` has std 0.102 ft and `sz_bot` 0.051 ft,
+far tighter than operator-set values, consistent with a deterministic
+height-based zone.
 
 #### 0.1.2 Model selection: rolling-origin CV
 
@@ -401,9 +426,11 @@ clear notebook outputs before commit.
 - Random pitch-level split was not leaking in v3 (train ≈ test RMSE); the
   chronological split is adopted for the prior-season hitter features and for
   the out-of-regime 2026 test, not because of v3 leakage.
-- 2026 is usable despite ABS, but only after trajectory harmonization
-  (§0.1.1); raw `plate_x`/`plate_z` must never be pooled across the 2025/2026
-  boundary. Extending the data helps the hitter-specific surfaces, not the
+- 2026 is usable despite ABS. Harmonize location to middle-of-plate first
+  (§0.1.1): the measured shift is ~1 inch vertically with a ~0.8 in
+  pitch-type-dependent spread — modest, but it tracks pitch type, so a constant
+  offset will not absorb it and it lands where called-strike probability is
+  steepest. Extending the data helps the hitter-specific surfaces, not the
   league sub-models, which are already saturated.
 - Two models are kept at the end (A: 2021–24, B: 2021–25) so the in-regime
   reference survives the final refit; 2026 is scored once per model.

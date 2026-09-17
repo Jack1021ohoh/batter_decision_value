@@ -21,9 +21,18 @@ proposing methodology changes:
 
 ## Running
 
-- Kernel: `baseball_env`, Python 3.11. Dependencies are the imports in the first
-  cell of each notebook (pandas, numpy, lightgbm, xgboost, scikit-learn,
-  scipy, seaborn, pingouin, adjustText, pybaseball, tqdm). No requirements file.
+- Environment is a uv project: `pyproject.toml` + `uv.lock`, Python 3.12.
+  `uv sync` to install, `uv run python ...` / `uv run jupyter lab` to execute.
+  Dev group holds jupyterlab, ipykernel, nbstripout.
+- **macOS prerequisite:** LightGBM needs the OpenMP runtime, which is not a pip
+  package — `brew install libomp`. Without it `import lightgbm` fails with
+  `Library not loaded: @rpath/libomp.dylib`.
+- Verified working stack: pandas 3.0, numpy 2.5, scikit-learn 1.9, lightgbm
+  4.7, xgboost 3.4, pingouin 0.6, pybaseball 2.2.7. LightGBM/XGBoost
+  categorical features, `groupby.apply` returning `ConvexHull` objects, and
+  `pybaseball.statcast` all tested under pandas 3.
+- The `baseball_env` kernel named in the old notebooks' metadata (Python 3.11)
+  predates this; point notebooks at the uv venv instead.
 - Data is **not** in the repo. `data_fetch.ipynb` pulls one regular season per
   cell via `pybaseball.statcast(start, end)` and writes `./data/<year>_data.csv`.
   Each pull is slow (a full season) — run only the years you need.
@@ -71,12 +80,13 @@ leaderboard, not for model evaluation.
 - Statcast `plate_x` is from the catcher's view: positive = first-base side, so
   the same value is inside to a LHB and outside to a RHB. Neither `stand` nor
   `sz_top`/`sz_bot` is used yet (planned: IMPROVEMENT_PLAN.md §0.3).
-- **2026 data is not comparable to earlier seasons as-is.** Per Statcast's CSV
+- **2026 location data is on a different reference plane.** Per Statcast's CSV
   docs, `plate_x`/`plate_z` moved from front-of-plate to middle-of-plate in
   2026, and `sz_top`/`sz_bot` switched from operator-set to the ABS-defined
-  zone. The shift is pitch-dependent, so it cannot be subtracted off; recompute
-  location at a common plane from the trajectory parameters first
-  (IMPROVEMENT_PLAN.md §0.1.1).
+  zone. Measured effect: the ball sits ~1 inch lower at middle-of-plate, with a
+  ~0.8 in spread by pitch type (FF least, CU most), so a constant offset does
+  not fix it. Convert 2021–25 forward with the trajectory delta in
+  IMPROVEMENT_PLAN.md §0.1.1 before pooling seasons.
 - Strike-zone overlay for plots is fixed at x ∈ [−0.708, 0.708], z ∈ [1.5, 3.5]
   (`strike_zone` df + `draw_line`).
 - `y_pred` on 2024 uses a nitro hull built from 2024 itself; on training years

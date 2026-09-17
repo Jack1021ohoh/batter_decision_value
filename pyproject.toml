@@ -1,0 +1,26 @@
+[project]
+name = "batter-decision-value"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "adjusttext>=1.1",
+    "lightgbm>=4.3",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pingouin>=0.5.4",
+    "pyarrow>=15",
+    "pybaseball>=2.2",
+    "scikit-learn>=1.4",
+    "scipy>=1.13",
+    "seaborn>=0.13",
+    "tqdm>=4.66",
+    "xgboost>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "jupyterlab>=4.6.3",
+    "nbstripout>=0.9.1",
+]

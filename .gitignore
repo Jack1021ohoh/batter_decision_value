@@ -1,0 +1,15 @@
+# Data (pulled via data_fetch; large, not versioned)
+data/
+*.csv
+*.parquet
+
+# Environment
+.venv/
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
