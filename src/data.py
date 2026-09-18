@@ -308,6 +308,56 @@ def drop_pitchers_batting(df: pd.DataFrame, min_pa: int = 50) -> pd.DataFrame:
 # Derived features
 # --------------------------------------------------------------------------
 
+#: ABS strike-zone band, as a fraction of batter height (confirmed in EDA §4:
+#: sz_bot/sz_top is 0.5047 with zero spread across hitters from 2026).
+ABS_TOP_FRAC = 0.535
+ABS_BOT_FRAC = 0.270
+
+
+def recover_batter_height(df: pd.DataFrame, abs_season: int = 2026) -> pd.Series:
+    """Batter height in feet, recovered from the ABS zone.
+
+    From `abs_season` the zone is a deterministic band of batter height, so
+    height = sz_top / 0.535 = sz_bot / 0.270. The two estimates agree to zero
+    decimal places across every batter, which is itself the confirmation that
+    the band is exact.
+
+    Why bother: through 2025 `sz_top`/`sz_bot` are set by an operator per pitch
+    and carry real noise (within-batter std 0.073-0.098 ft). A height-derived
+    zone is noise-free and, more importantly, *identical across eras* -- so any
+    cross-season comparison of the called zone is like-for-like. Measuring the
+    zone in each era's own units makes 2026 look more generous than 2021 purely
+    because the ABS nominal zone is ~2.8 in shorter.
+
+    Returns a Series indexed by batter; batters absent from `abs_season` are
+    missing and need the fallback in `add_zone_frame(common_zone=True)`.
+    """
+    src = df[df['season'] == abs_season]
+    if src.empty:
+        raise ValueError(f'no {abs_season} rows -- cannot recover heights')
+    med = src.groupby('batter')[['sz_top', 'sz_bot']].median()
+    height = (med['sz_top'] / ABS_TOP_FRAC + med['sz_bot'] / ABS_BOT_FRAC) / 2
+    return height.rename('height')
+
+
+def add_common_zone(df: pd.DataFrame, abs_season: int = 2026) -> pd.DataFrame:
+    """Attach one height-derived strike zone that means the same thing in every season.
+
+    Adds `zone_top` / `zone_bot`. Batters never seen in `abs_season` fall back
+    to their own median operator-set bounds, which removes the per-pitch noise
+    even though it keeps whatever operator bias that batter carried.
+    """
+    df = df.copy()
+    height = recover_batter_height(df, abs_season=abs_season)
+    h = df['batter'].map(height)
+
+    fallback = df.groupby('batter')[['sz_top', 'sz_bot']].transform('median')
+    df['zone_top'] = np.where(h.notna(), ABS_TOP_FRAC * h, fallback['sz_top'])
+    df['zone_bot'] = np.where(h.notna(), ABS_BOT_FRAC * h, fallback['sz_bot'])
+    df['zone_from_height'] = h.notna()
+    return df
+
+
 def add_zone_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Put location in the batter's frame.
 

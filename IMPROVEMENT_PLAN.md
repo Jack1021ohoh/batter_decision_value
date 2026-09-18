@@ -137,6 +137,20 @@ What did change is the *nominal* zone: the ABS top is 2.64 in lower than the
 operator-set top it replaced (3.215 ft vs 3.435 ft in 2025), and the zone is
 ~2.8 in shorter overall. That is what moves the 2026 called-strike rates.
 
+**Consequence for any cross-era zone comparison.** Measuring "distance past the
+zone edge" in each season's own nominal units makes 2026 look *more* generous,
+which is backwards. Use `add_common_zone()`: batter height is recoverable
+exactly from the 2026 band (`sz_top/0.535` and `sz_bot/0.270` agree to 0.0000
+in across all 659 batters), giving one zone that means the same thing in every
+season. On that footing the called zone clearly tightened — the 50% boundary
+goes 0.172 → 0.122 ft and the effective called area 3.18 → 2.91 sq ft (−8.6%),
+with 2026 landing on the ball radius (0.121 ft), i.e. the true rulebook
+boundary.
+
+The height-derived zone is also the better *feature*: operator-set bounds carry
+a within-batter std of 0.073–0.098 ft of pure measurement noise, which
+`plate_z_norm` currently inherits for 2021–25.
+
 #### 0.1.2 Model selection: rolling-origin CV
 
 Do not pick a single validation season. Roll the origin so every design
