@@ -463,6 +463,9 @@ clear notebook outputs before commit.
 - Random pitch-level split was not leaking in v3 (train ≈ test RMSE); the
   chronological split is adopted for the prior-season hitter features and for
   the out-of-regime 2026 test, not because of v3 leakage.
+- Thin counterfactual support is not by itself a problem: it coincides with
+  unambiguous decisions (3-0 off the plate), where a large |edge| makes the
+  call robust to estimation error. Judge support by ambiguity, not raw counts.
 - 2026 is usable despite ABS. Harmonize location to middle-of-plate first
   (§0.1.1): the measured shift is ~1 inch vertically with a ~0.8 in
   pitch-type-dependent spread — modest, but it tracks pitch type, so a constant
