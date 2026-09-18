@@ -291,11 +291,20 @@ Either way one model owns `P(CS | s)`; the separate called-strike model is not
 multiplied against the take model.
 
 ### A4. Nitro zone without leakage
+
+Track A's purpose is a faithful, corrected reproduction of the v2/v3 design, so
+the hull stays here — but **EDA §6 has already measured how it will do**, and
+the answer is badly (see B4). Do not spend time on hull tuning; produce the
+corrected baseline and move on.
+
 - Build the hull from prior seasons only (≥ 150 BIP across those seasons).
 - Feed `in_nitro` to the swing model only. Check first: train the take model
   with and without it; expect identical RMSE to three decimals.
-- Stability of the zone itself: `area(hull_t ∩ hull_{t+1}) / area(hull_t ∪ hull_{t+1})`
-  per hitter. Low overlap = noise, not a trait.
+- **Skip the hull-overlap stability test.** It was to establish whether the
+  zone is a trait or noise; EDA §6 answered that directly and more
+  informatively — the trait is real (smoothed surfaces reproduce at r ≈ 0.68
+  year over year) and the hull is simply the worst estimator of it
+  (raw cells r ≈ 0.30; a top-5% threshold is worse still).
 - Fix `add_nitro_zone`'s inner merge (left merge, `in_nitro = False` when no
   hull); fix `plot_nitro_zone`'s `iloc[0, −2]`.
 
@@ -357,10 +366,49 @@ The piece the public metrics lack.
    cost this year" from "how good he is at deciding."
 
 ### B4. Personalized contact quality
+
+**The hot zone is a real, stable trait; the v2 hull was just the worst way to
+estimate it.** EDA §6 measured year-over-year reliability of the per-hitter
+exit-velocity surface three ways:
+
+| estimator | YoY r |
+|---|---|
+| raw 4×4 cells, no smoothing or shrinkage | **0.28–0.33** |
+| kernel-smoothed + empirical-Bayes shrunk | **0.64–0.68** |
+| same, 2-season prior window | **0.71** |
+
+A top-5% hull is worse than the first row: it discards 95% of the balls in play
+and leaves a polygon defined by a handful of points. That is the mechanism
+behind the v1→v2 stability drop.
+
+Recipe, with the settings that produced those numbers:
+
+1. **Every ball in play**, continuous response (exit velocity or xwOBAcon),
+   never a top-k threshold.
+2. **Kernel-smooth over location**, bandwidth ≈ 0.35 ft in the batter frame
+   (`plate_x_bat`, `plate_z_norm`) — a hot zone is spatially smooth, so each
+   ball in play informs its neighbourhood.
+3. **Empirical-Bayes shrink toward the league surface** by effective sample
+   size (k ≈ 60); low-sample hitters revert to league, not to noise.
+4. **Pool a multi-season prior window** — 2 seasons beats 1 (0.71 vs 0.68), and
+   it is free since seasons < t are required anyway.
+5. Optionally **parameterise low-rank**: hitter surfaces are nearly
+   3-dimensional (PC1 60.5%, PC2 21.0%, PC3 7.7% — 89% in three, 96.5% in
+   five), so ~3 coefficients per hitter is more stable and cheaper than a free
+   grid. This is also *why* shrinkage recovers so much.
+
+**Acceptance criterion: YoY r ≈ 0.7 before the feature enters the swing
+model.** A feature less reliable than the metric it is meant to improve cannot
+help it.
+
+If reliability needs more, two sources are still unexploited: all swings rather
+than only balls in play (whiffs and fouls carry coverage information), and bat
+tracking from 2024 (bat speed, attack angle) as a physical prior on where a
+hitter generates power.
+
 Add prior-season hitter features to the contact-quality sub-model only:
-- Shrunken EV / xwOBAcon surface over `(plate_x_b, plate_z_n)`, kernel-smoothed,
-  empirical-Bayes toward the league surface by BIP count (continuous
-  replacement for the hull; degrades to league average for rookies).
+- The shrunken, smoothed surface above (continuous replacement for the hull;
+  degrades to league average for rookies).
 - Rolling prior-season contact%, whiff%, damage rate.
 - Prior-season bat speed. 2024 is the first season it exists, so it is
   available as a prior for 2025 and 2026 only; keep it out of earlier seasons
@@ -401,7 +449,7 @@ SEAGER/SwRV-style metrics, and Statcast Swing/Take.
 | 3 | A1–A2 | metric fix; pitch-frame features scored |
 | 4 | A3 | take-model verification → structural `Q_take` (shared with B) |
 | 5 | B1–B2 | swing-outcome + contact-quality sub-models; generic v4b |
-| 6 | A4 | prior-season hull, stability test, swing-only `in_nitro` → v4a complete |
+| 6 | A4 | prior-season hull, swing-only `in_nitro` → v4a complete (no stability test; EDA §6 answered it) |
 | 7 | B3 | direct standardization + Zone% test |
 | 8 | B4 | personalized contact quality; generic vs personalized readout |
 | 9 | B5 | overlap diagnostics; IPW comparison |
@@ -463,6 +511,10 @@ clear notebook outputs before commit.
 - Random pitch-level split was not leaking in v3 (train ≈ test RMSE); the
   chronological split is adopted for the prior-season hitter features and for
   the out-of-regime 2026 test, not because of v3 leakage.
+- A noisy *estimate* is not the same as an absent *signal*. The per-hitter hot
+  zone goes from YoY r ≈ 0.30 (raw cells) to ≈ 0.68 (smoothed + shrunk) to
+  ≈ 0.71 (2-season prior) with no new data. Judge a feature by the best
+  available estimator, not the naive one.
 - Thin counterfactual support is not by itself a problem: it coincides with
   unambiguous decisions (3-0 off the plate), where a large |edge| makes the
   call robust to estimation error. Judge support by ambiguity, not raw counts.
