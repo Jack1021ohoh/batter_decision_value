@@ -435,7 +435,30 @@ SEAGER/SwRV-style metrics, and Statcast Swing/Take.
 
 - **Creally five-zone linear weights**: mean swing and take value per count ×
   attack zone; hitter score = sum over decisions. Transparent floor.
-- **v1** as-is (location + count, mean chosen-action value) on the new split.
+- **v1**, the pre-nitro-zone design that scored YoY R² = 0.57. Full spec below,
+  so it is reproducible without reading the retired notebook.
+
+  | | v1 |
+  |---|---|
+  | features | `plate_x`, `plate_z`, `count` (categorical) |
+  | target | `delta_run_exp_mean` — mean `delta_run_exp` by (outcome, count) |
+  | models | two XGBoost regressors, split on `swing` |
+  | take params | `max_depth=8, learning_rate=0.03, objective=reg:squarederror, tree_method=hist`, 200 rounds |
+  | swing params | `max_depth=7, learning_rate=0.01`, otherwise identical, 200 rounds |
+  | per-pitch score | `y_pred` = prediction of the model matching the action actually taken |
+  | player metric | mean `y_pred` over **all** pitches, z-scored, ×10 + 100 |
+  | qualification | ≥ 500 pitches |
+  | seed | 1126 |
+
+  **Reimplement this on `src/data.py`, do not run the retired notebook.** v1
+  carries the data defects the rebuild fixes — per-season run-value tables, no
+  pitcher-batting filter, `field_error` mapped to `field_out`, and no 2026
+  harmonization, which would silently pool front-of-plate with middle-of-plate
+  locations. Running it verbatim would confound v1's design with v1's bugs; the
+  point of the baseline is to isolate the design.
+
+  The retired notebooks are at `fa48b14` if anything above needs checking:
+  `git show fa48b14:batter_decision_value.ipynb`.
 - **O-Swing%, Z-O-Swing%** from the same data.
 
 ---
