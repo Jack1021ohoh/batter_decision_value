@@ -24,3 +24,6 @@ dev = [
     "jupyterlab>=4.6.3",
     "nbstripout>=0.9.1",
 ]
+
+[tool.uv]
+package = false

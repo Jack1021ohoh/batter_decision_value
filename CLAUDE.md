@@ -55,6 +55,22 @@ proposing methodology changes:
 - Notebooks are committed with outputs (2–5 MB each); clear outputs or diff on
   source only.
 
+## v4 code (current work)
+
+- `src/data.py` is the single source of loading/cleaning truth. `build_cache()`
+  trims the raw CSVs to ~45 columns as `data/cache/<year>.parquet` (2.4 GB →
+  374 MB, ~40s → ~0.1s per season); `load_seasons()` is the entry point and
+  applies `to_middle_of_plate()` + `clean()`. Also holds `add_zone_frame()`,
+  `in_rulebook_zone()`, `run_value_table()`, `drop_pitchers_batting()`, and the
+  fetch helpers shared with `data_fetch.ipynb`.
+- `notebooks/eda.ipynb` — the EDA, §1–§7, ending in a decisions table. Run it
+  with `uv run jupyter lab` from the repo root; it does `sys.path.insert(0,'..')`.
+- Key EDA results now baked into `IMPROVEMENT_PLAN.md`: ABS band is exactly
+  27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
+  suffices); counterfactual support fails only on 3-0 off the plate; 41% of
+  batter-location cells hold <10 balls in play, so per-hitter surfaces must be
+  shrunk over a multi-season window.
+
 ## Pipeline (v3), in execution order
 
 All of this is in `batter_decision_value_v3.ipynb`; cell numbers refer to it.

@@ -119,11 +119,16 @@ verified.
 
 For the zone, derive `sz_top` / `sz_bot` from batter height for every season
 rather than mixing operator-set with ABS-defined values. The ABS zone is a
-fixed percentage band of height (reported as roughly 27%–53.5% at the middle
-of the plate) — **verify the exact figures before relying on them.** Sanity
-check already observed: 2026 `sz_top` has std 0.102 ft and `sz_bot` 0.051 ft,
-far tighter than operator-set values, consistent with a deterministic
-height-based zone.
+fixed percentage band of height. **Confirmed by EDA §4**: from 2026 a batter's
+`sz_top`/`sz_bot` never vary (within-batter std 0.0000, vs 0.073–0.098 before),
+and `sz_bot/sz_top` = **0.5047 with std 0.0000** across all hitters, matching
+27.0/53.5 = 0.5047 exactly. The band is 27%–53.5% of height.
+
+Zone convention also differs by era and must be handled: the human zone is
+effectively "any part of the ball" (±0.83 ft), the ABS zone is the ball's
+centre (±0.708 ft). Under ball-centre the 2026 in-zone called-strike rate is
+0.985 vs 0.952–0.959 earlier; under ball-edge it is 0.957. Use ball-centre for
+2026, ball-edge before it.
 
 #### 0.1.2 Model selection: rolling-origin CV
 
@@ -171,6 +176,9 @@ looked wrong makes 2026 a validation set and the final evaluation dishonest.
 ### 0.2 Run-value lookup
 
 `RE(outcome, count)` = mean Statcast `delta_run_exp` by `(des_new, count)`.
+**EDA §3 settles two things**: `delta_run_exp` is a deterministic
+base–out–count lookup (within-group std 0.00000000), and the table drifts by
+≤0.014 runs across all six seasons — so one table, no recency weighting.
 Compute it on the training seasons of whichever model is being fit (2021–24 for
 Model A, 2021–25 for Model B), apply the same table to every season that model
 scores, and never let 2026 into it. v3 recomputes it per year inside
@@ -443,3 +451,10 @@ clear notebook outputs before commit.
 - Two models are kept at the end (A: 2021–24, B: 2021–25) so the in-regime
   reference survives the final refit; 2026 is scored once per model.
 - Realized bat speed / EV on the swing being graded is never a feature.
+- `automatic_ball` / `automatic_strike` are excluded as non-decisions (pitch
+  clock and intentional walks, ~13.9k rows over six seasons); `field_error` is
+  never mapped to `field_out` (+0.461 vs −0.250 runs).
+- 2021 needs the pitcher-batting filter (402 batters); 2022+ needs it only
+  marginally (16–30) but it is applied uniformly.
+- The lefty strike shrinks by only ~20% under the ABS *challenge* system
+  (−0.110 → −0.086), so handedness stays in the feature set for 2026.
