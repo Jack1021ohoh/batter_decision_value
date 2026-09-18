@@ -433,6 +433,14 @@ SEAGER/SwRV-style metrics, and Statcast Swing/Take.
 
 ## Baselines to reproduce (cheap, do early)
 
+**Every baseline must be re-run on the corrected pipeline.** The historical
+0.57 / 0.34 / 0.16 were measured on the old data path — overseas games
+included, pitchers batting, run-value tables refit per season, `field_error`
+mapped to `field_out`, a single 2022→2023 pair, and no 2026 harmonization.
+A new v4 number compared against a historical 0.57 compares two different
+measurements. The scorecard is only meaningful when every row comes from the
+same harness.
+
 - **Creally five-zone linear weights**: mean swing and take value per count ×
   attack zone; hitter score = sum over decisions. Transparent floor.
 - **v1**, the pre-nitro-zone design that scored YoY R² = 0.57. Full spec below,
@@ -459,6 +467,20 @@ SEAGER/SwRV-style metrics, and Statcast Swing/Take.
 
   The retired notebooks are at `fa48b14` if anything above needs checking:
   `git show fa48b14:batter_decision_value.ipynb`.
+- **v2 = v1 + `in_nitro`**, run twice, to decompose the historical 0.57 → 0.34
+  drop into its two confounded causes:
+
+  | run | hull built from | isolates |
+  |---|---|---|
+  | v2-leaky | the same season it scores | the leak's contribution |
+  | v2-clean | prior seasons only (this is A4) | the noisy-estimator contribution |
+
+  EDA §6 established that a hull is a poor *estimator* of the hot-zone signal
+  (raw cells reproduce at r ≈ 0.30 against r ≈ 0.68 smoothed and shrunk), but
+  that is feature reliability, not the metric-level effect, and it says nothing
+  about how much of the v2 damage was leakage. These two runs answer both, and
+  v2-clean is needed for the scorecard regardless since it is Track A4.
+
 - **O-Swing%, Z-O-Swing%** from the same data.
 
 ---
@@ -468,7 +490,7 @@ SEAGER/SwRV-style metrics, and Statcast Swing/Take.
 | Step | Track | Output |
 |---|---|---|
 | 1 | 0 | 2025 + 2026 pulls, `game_type` filter, trajectory harmonization (§0.1.1), RE lookup, pitch-frame features, `src/` skeleton, harness, rolling-origin CV scaffold |
-| 2 | baselines | Creally + v1 + O-Swing% on the harness |
+| 2 | baselines | Creally + v1 + v2-leaky + O-Swing% on the harness, all re-run on the corrected pipeline |
 | 3 | A1–A2 | metric fix; pitch-frame features scored |
 | 4 | A3 | take-model verification → structural `Q_take` (shared with B) |
 | 5 | B1–B2 | swing-outcome + contact-quality sub-models; generic v4b |
@@ -490,9 +512,12 @@ from the CV folds during development; 2026 only at the end, once per model.
 
 | Variant | CS log loss | Swing-side RMSE vs count-only | Split-half r | YoY R² (22→23 / 23→24 / 24→25 / 25→26) | Zone% corr | Next-yr wOBA partial r |
 |---|---|---|---|---|---|---|
-| v3 as-is | — | 0.296 / ? | ? | 0.16 / ? / ? / ? | ? | ? |
-| v1 | — | | | 0.57 / ? / ? / ? | | |
-| Creally 5-zone | — | | | | | |
+| v3 historical (old pipeline, not comparable) | — | 0.296 | — | 0.16 | — | — |
+| v1 historical (old pipeline, not comparable) | — | — | — | 0.57 | — | — |
+| v1 re-run | | | | | | |
+| v2-leaky (same-season hull) | | | | | | |
+| v2-clean = A4 (prior-season hull) | | | | | | |
+| Creally 5-zone | | | | | | |
 | A1 metric fix | | | | | | |
 | A2 + pitch frame | | | | | | |
 | A4 v4a (prior nitro) | | | | | | |
