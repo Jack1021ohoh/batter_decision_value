@@ -66,8 +66,18 @@ methodology changes:
   applies `to_middle_of_plate()` + `clean()`. Also holds `add_zone_frame()`,
   `in_rulebook_zone()`, `run_value_table()`, `drop_pitchers_batting()`, and the
   fetch helpers shared with `data_fetch.ipynb`.
-- `notebooks/eda.ipynb` — the EDA, §1–§7, ending in a decisions table. Run it
-  with `uv run jupyter lab` from the repo root; it does `sys.path.insert(0,'..')`.
+- `src/baselines.py` — baseline models. `fit_v1()` takes a feature list, so v2
+  is the same call with `in_nitro` appended rather than a copy.
+  `predict_chosen()` is v1's defining choice (score the action actually taken);
+  `predict_both()` gives the counterfactual pair every later variant needs.
+- `src/evaluate.py` — the shared harness: `rmse_vs_count_baseline` (never report
+  bare RMSE — the target is a function of (outcome, count), so count-only is the
+  floor), `player_metric`, `yoy_reliability`, `split_half`,
+  `zone_pct_correlation` (the SOTO test), `predictive_validity`, and `harness()`
+  which returns one scorecard row.
+- `notebooks/` — `eda.ipynb` (§1–§7, ends in a decisions table) and
+  `v1_baseline.ipynb` (the first filled scorecard row). Both do
+  `sys.path.insert(0, '..')`; run from the repo root.
 - Key EDA results now baked into `IMPROVEMENT_PLAN.md`: ABS band is exactly
   27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
   suffices); counterfactual support fails only on 3-0 off the plate; 41% of

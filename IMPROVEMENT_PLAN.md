@@ -485,6 +485,31 @@ same harness.
 
 ---
 
+## v1 baseline: what it established
+
+Run in `notebooks/v1_baseline.ipynb` (code in `src/baselines.py`,
+`src/evaluate.py`).
+
+- **The reimplementation is faithful.** 2022→2023 — the only pair the
+  historical 0.57 covered — comes in at R² = 0.578 on a completely different
+  pipeline. That agreement is what licenses calling this v1.
+- **Reliable**: YoY R² 0.43–0.58, split-half 0.75.
+- **Not confounded by pitch mix.** Zone% explains 0.1–1.2% of the metric's
+  variance, against the ~23% that retired SOTO. The standing assumption that
+  v1's mean-of-chosen-action is badly pitch-mix confounded **does not hold at
+  that magnitude** — v1 is a stronger baseline than assumed, and Track A and B
+  have a higher bar to clear.
+- **Barely valid.** Partial r against next-season production is 0.076, and the
+  2025→2026 pair is slightly negative. v1 is reliable without being useful.
+  **This is the number to beat**, not the YoY figure.
+- **The weakness is located.** The swing model beats a count-only lookup by
+  0.8%; the take model by 43.6%. v1's decision value is driven almost entirely
+  by its take model, which is a called-strike probability in disguise. Track B
+  targets exactly this.
+- Face validity holds: 2026 top is Soto, Torres, Tucker, Seager, Acuña; bottom
+  is Báez, Sosa, Story. Contrast v3, which put Arráez and Hoerner at the
+  bottom.
+
 ## Execution order
 
 | Step | Track | Output |
@@ -510,11 +535,14 @@ Steps 3–4 and 5 can run in parallel; A3's structural take model is reused by B
 Fill one row per variant; all numbers from the same harness. Validate columns
 from the CV folds during development; 2026 only at the end, once per model.
 
-| Variant | CS log loss | Swing-side RMSE vs count-only | Split-half r | YoY R² (22→23 / 23→24 / 24→25 / 25→26) | Zone% corr | Next-yr wOBA partial r |
+Last column is the partial correlation between season-*t* decision value and
+season-*t+1* ΔRE per plate appearance, controlling for season-*t* ΔRE/PA.
+
+| Variant | CS log loss | Swing-side RMSE vs count-only | Split-half r | YoY R² (22→23 / 23→24 / 24→25 / 25→26) | Zone% \|r\| | Next-season partial r |
 |---|---|---|---|---|---|---|
 | v3 historical (old pipeline, not comparable) | — | 0.296 | — | 0.16 | — | — |
 | v1 historical (old pipeline, not comparable) | — | — | — | 0.57 | — | — |
-| v1 re-run | | | | | | |
+| **v1 re-run** | n/a | **0.2985 / 0.3010 (+0.8%)** | **0.75** | **0.58 / 0.56 / 0.51 / 0.43** | **0.077** | **0.076** |
 | v2-leaky (same-season hull) | | | | | | |
 | v2-clean = A4 (prior-season hull) | | | | | | |
 | Creally 5-zone | | | | | | |
