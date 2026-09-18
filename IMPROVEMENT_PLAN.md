@@ -124,11 +124,18 @@ fixed percentage band of height. **Confirmed by EDA §4**: from 2026 a batter's
 and `sz_bot/sz_top` = **0.5047 with std 0.0000** across all hitters, matching
 27.0/53.5 = 0.5047 exactly. The band is 27%–53.5% of height.
 
-Zone convention also differs by era and must be handled: the human zone is
-effectively "any part of the ball" (±0.83 ft), the ABS zone is the ball's
-centre (±0.708 ft). Under ball-centre the 2026 in-zone called-strike rate is
-0.985 vs 0.952–0.959 earlier; under ball-edge it is 0.957. Use ball-centre for
-2026, ball-edge before it.
+Zone **convention is unchanged**: the 2026 rules define a strike as a pitch any
+part of which passes through the zone, and ABS applies that same standard on a
+2D plane at the plate midpoint — it does not judge the ball's centre. Verified
+against the empirical 50% called-strike boundary (EDA §4): in 2026 it sits
++0.163 ft past `sz_top`, +0.129 ft past `sz_bot`, and at 0.847 ft horizontally,
+against a ball radius of 0.121 ft and a predicted 0.829 ft; a centre-based zone
+would predict 0.000 and 0.708. **Use the ball-edge convention (±0.829 ft) for
+every season.**
+
+What did change is the *nominal* zone: the ABS top is 2.64 in lower than the
+operator-set top it replaced (3.215 ft vs 3.435 ft in 2025), and the zone is
+~2.8 in shorter overall. That is what moves the 2026 called-strike rates.
 
 #### 0.1.2 Model selection: rolling-origin CV
 
@@ -458,3 +465,7 @@ clear notebook outputs before commit.
   marginally (16–30) but it is applied uniformly.
 - The lefty strike shrinks by only ~20% under the ABS *challenge* system
   (−0.110 → −0.086), so handedness stays in the feature set for 2026.
+- ABS judges "any part of the ball", not the ball's centre — the same
+  convention as the rulebook, so zone membership is computed identically in
+  every season. The 2026 difference is the nominal zone (2.64 in lower at the
+  top), not the convention.

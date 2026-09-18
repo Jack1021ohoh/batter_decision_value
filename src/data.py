@@ -328,8 +328,24 @@ def add_zone_frame(df: pd.DataFrame) -> pd.DataFrame:
 def in_rulebook_zone(df: pd.DataFrame, ball_edge: bool = True) -> pd.Series:
     """Whether the pitch is in the strike zone.
 
-    `ball_edge=True` uses the human convention -- any part of the ball over the
-    plate. ABS judges the ball's centre, so pass `ball_edge=False` for 2026+.
+    `ball_edge=True` (the default, and correct for every season) applies the
+    rulebook convention: a strike is a pitch *any part of* which passes through
+    the zone, so the effective half-width is the plate half-width plus the ball
+    radius.
+
+    ABS uses the same any-part-of-the-ball standard -- it evaluates it on a 2D
+    plane at the midpoint of the plate rather than through the 3D volume, but
+    it does **not** judge the ball's centre. Confirmed empirically: in 2026 the
+    50% called-strike boundary sits ~0.13-0.16 ft outside the nominal zone on
+    the top and bottom edges, against a ball radius of 0.121 ft, and at 0.847
+    ft horizontally against 0.829 ft predicted by any-part-of-ball. A
+    centre-based zone would put those at 0.0 and 0.708.
+
+    What actually changed in 2026 is the *nominal* zone: ABS sets it from
+    batter height (27%-53.5%), which runs ~2.6 in lower at the top than the
+    operator-set zone it replaced.
+
+    `ball_edge=False` is retained only for sensitivity analysis.
     """
     half = PLATE_HALF_WIDTH_FT + (BALL_RADIUS_FT if ball_edge else 0.0)
     x = df['plate_x_mid'] if 'plate_x_mid' in df else df['plate_x']

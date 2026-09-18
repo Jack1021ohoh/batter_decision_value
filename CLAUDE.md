@@ -70,6 +70,11 @@ proposing methodology changes:
   suffices); counterfactual support fails only on 3-0 off the plate; 41% of
   batter-location cells hold <10 balls in play, so per-hitter surfaces must be
   shrunk over a multi-season window.
+- **ABS judges "any part of the ball", not the ball's centre** — same
+  convention as the rulebook, so `in_rulebook_zone(ball_edge=True)` is correct
+  for every season. Verified against the empirical called-strike boundary
+  (EDA §4). The real 2026 change is the nominal zone: 2.64 in lower at the top
+  (3.215 ft vs 3.435 ft in 2025) and ~2.8 in shorter.
 
 ## Pipeline (v3), in execution order
 
