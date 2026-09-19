@@ -290,23 +290,46 @@ classifier (this is Track B's take model; the tracks converge here).
 Either way one model owns `P(CS | s)`; the separate called-strike model is not
 multiplied against the take model.
 
-### A4. Nitro zone without leakage
+### A4. Nitro zone — **done, as the v2 rebuild** (`notebooks/v2_baseline.ipynb`)
 
-Track A's purpose is a faithful, corrected reproduction of the v2/v3 design, so
-the hull stays here — but **EDA §6 has already measured how it will do**, and
-the answer is badly (see B4). Do not spend time on hull tuning; produce the
-corrected baseline and move on.
+The de-leaked hull is built and scored. Three results, one of which overturns
+an assumption this plan carried.
 
-- Build the hull from prior seasons only (≥ 150 BIP across those seasons).
-- Feed `in_nitro` to the swing model only. Check first: train the take model
-  with and without it; expect identical RMSE to three decimals.
-- **Skip the hull-overlap stability test.** It was to establish whether the
-  zone is a trait or noise; EDA §6 answered that directly and more
-  informatively — the trait is real (smoothed surfaces reproduce at r ≈ 0.68
-  year over year) and the hull is simply the worst estimator of it
-  (raw cells r ≈ 0.30; a top-5% threshold is worse still).
-- Fix `add_nitro_zone`'s inner merge (left merge, `in_nitro = False` when no
-  hull); fix `plot_nitro_zone`'s `iloc[0, −2]`.
+**The hull is not the problem.** v2 rebuilt edges v1 on every measure over the
+same 2022–2026 window: split-half 0.786 vs 0.753, YoY R² 0.530 vs 0.517, Zone%
+|r| 0.033 vs 0.077, next-season partial r 0.089 vs 0.084. The historical
+collapse from 0.57 to 0.34 was **the leak**, compounded by a simultaneous
+switch of learner and hyperparameters — not evidence against the feature. v2's
+idea was never actually tested by v2.
+
+This corrects the framing above and in B4: EDA §6 measured hull-class
+estimators as poor at reproducing the *hot-zone signal* (r ≈ 0.30 vs 0.68), and
+that remains true, but it does not follow that the hull damages the *metric*.
+It does not.
+
+**`in_nitro` is largely a location proxy.** 91% of flagged pitches are in the
+strike zone and it correlates 0.51 with zone membership, which is why it takes
+81–89% of model gain while moving RMSE only in the fourth decimal — the tree
+uses it as a cheap "middle of the zone" split. Genuine personalization is
+present but is the smaller part: between-hitter std within a location cell is
+0.247, cell means span 0.00–0.70.
+
+**It contributes nothing to the take model**, as predicted: take RMSE 0.04283
+without it, 0.04298 with it — marginally worse, i.e. noise. Swing-model-only
+routing is a design change rather than a correction, so it belongs to the patch
+work, but the evidence for it is now measured rather than assumed.
+
+**New defect, introduced by the fix itself.** Hull size scales with accumulated
+history: median prior balls in play go 155 (2022) → 285 (2026), so the top-5%
+set grows from ~7 points to ~14 and `in_nitro` fires on 14.5% of pitches in 2022
+against 26.1% in 2026. The same hitter with an unchanged hot zone gets a larger
+flagged region in later seasons. **Any prior-window feature needs a fixed
+window or a fixed-area rule**, and this applies to B4's surface too.
+
+Coverage: 79–85% of qualified hitters have a prior-season hull (worst in 2022,
+whose only prior is 2021); the rest score `False`. 2021 cannot be scored at all,
+so v2 covers 2022–2026 and four YoY pairs, and v1 is re-reported on that window
+for the comparison.
 
 ### A5. Deliverable
 "v4a": corrected SOTO-v2-class model with a full harness readout. This is the
@@ -543,8 +566,8 @@ season-*t+1* ΔRE per plate appearance, controlling for season-*t* ΔRE/PA.
 | v3 historical (old pipeline, not comparable) | — | 0.296 | — | 0.16 | — | — |
 | v1 historical (old pipeline, not comparable) | — | — | — | 0.57 | — | — |
 | **v1 re-run** | n/a | **0.2985 / 0.3010 (+0.8%)** | **0.75** | **0.58 / 0.56 / 0.51 / 0.43** | **0.077** | **0.076** |
-| v2-leaky (same-season hull) | | | | | | |
-| v2-clean = A4 (prior-season hull) | | | | | | |
+| v1 re-run, 2022–26 window | n/a | 0.2974 / 0.2998 | 0.753 | 0.58 / 0.56 / 0.51 / 0.43 | 0.077 | 0.084 |
+| **v2 rebuilt (prior-season hull)** | n/a | **0.2973 / 0.2998** | **0.786** | **0.57 / 0.56 / 0.52 / 0.47** | **0.033** | **0.089** |
 | Creally 5-zone | | | | | | |
 | A1 metric fix | | | | | | |
 | A2 + pitch frame | | | | | | |
@@ -587,6 +610,13 @@ clear notebook outputs before commit.
 - Random pitch-level split was not leaking in v3 (train ≈ test RMSE); the
   chronological split is adopted for the prior-season hitter features and for
   the out-of-regime 2026 test, not because of v3 leakage.
+- A feature can be a poor *estimator of its signal* and still not harm the
+  *metric*. The hull reproduces the hot-zone signal at r ≈ 0.30 against 0.68
+  for a smoothed surface, yet the rebuilt v2 slightly beats v1. Measure the
+  metric, not just the feature.
+- Prior-window features drift when the window grows: the hull's flagged area
+  nearly doubles from 2022 to 2026 purely from accumulated history. Fix the
+  window or the area.
 - A noisy *estimate* is not the same as an absent *signal*. The per-hitter hot
   zone goes from YoY r ≈ 0.30 (raw cells) to ≈ 0.68 (smoothed + shrunk) to
   ≈ 0.71 (2-season prior) with no new data. Judge a feature by the best

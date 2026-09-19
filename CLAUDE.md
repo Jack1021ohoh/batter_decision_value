@@ -75,8 +75,12 @@ methodology changes:
   floor), `player_metric`, `yoy_reliability`, `split_half`,
   `zone_pct_correlation` (the SOTO test), `predictive_validity`, and `harness()`
   which returns one scorecard row.
-- `notebooks/` — `eda.ipynb` (§1–§7, ends in a decisions table) and
-  `v1_baseline.ipynb` (the first filled scorecard row). Both do
+- `src/features.py` — the nitro zone: `batter_hulls`, `add_in_nitro` (left-join
+  semantics; v2's inner merge silently deleted hitters without a hull),
+  `season_in_nitro` (builds each season's hulls from prior seasons only, and
+  asserts it). `is_inside_hull_rowwise` is kept to verify the vectorized test.
+- `notebooks/` — `eda.ipynb` (§1–§7, ends in a decisions table),
+  `v1_baseline.ipynb` and `v2_baseline.ipynb` (scorecard rows). All do
   `sys.path.insert(0, '..')`; run from the repo root.
 - Key EDA results now baked into `IMPROVEMENT_PLAN.md`: ABS band is exactly
   27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
