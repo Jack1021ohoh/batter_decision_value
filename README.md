@@ -27,11 +27,34 @@ This framework separates the two.
 | Data | 2021–2026 regular seasons, 4.24M pitches, overseas neutral-site games excluded |
 | Loader | `src/data.py` — caching, cleaning, 2026 harmonization, derived features |
 | EDA | `notebooks/eda.ipynb` — seven sections, each ending in a decision |
+| Harness | `src/evaluate.py` — reliability, validity and contamination checks, shared by every variant |
+| v1 | `notebooks/v1_baseline.ipynb` — location + count, re-run on the corrected pipeline |
+| v2 | `notebooks/v2_baseline.ipynb` — v1 + nitro zone, leak and silent-deletion bug fixed |
 
 | Next | |
 |---|---|
-| Track A | corrected two-model baseline (`IMPROVEMENT_PLAN.md`) |
+| Track A | patch the two-model design: the metric fix first, then batter-frame features |
 | Track B | event-decomposition redesign with opportunity standardization |
+
+### Where the baselines landed
+
+Each row is the same pipeline, learner and hyperparameters; only the design
+differs. Higher is better except the Zone% column, where lower means less
+contaminated by the pitches a hitter happened to see.
+
+| | swing RMSE vs count-only | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
+|---|---|---|---|---|---|
+| v1 (2021–26) | 0.2985 / 0.3010 | 0.750 | 0.519 | 0.077 | 0.092 |
+| v1 (2022–26 window) | 0.2974 / 0.2998 | 0.753 | 0.517 | 0.077 | 0.095 |
+| **v2** (2022–26) | 0.2973 / 0.2998 | **0.786** | **0.530** | **0.033** | **0.105** |
+
+Two things to read off this. The baselines are **reliable but barely useful** —
+a partial correlation of ~0.10 against next-season production means the metric
+adds little to simply knowing how a hitter already hit, and that is the number
+the rebuild has to move. And the **swing model beats a count-only lookup by
+under 1%**, against ~44% for the take model: location and count say almost
+nothing about what happens when a hitter swings, which is what Track B's event
+decomposition is aimed at.
 
 [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) is the roadmap.
 [`mlb_swing_decision_related_work.md`](mlb_swing_decision_related_work.md)
@@ -51,7 +74,9 @@ then 0.34, then 0.16 — and the causes turned out to be independent:
   already contains `P(ball)`.
 - **The nitro zone leaked its own outcome.** The convex hull was drawn through
   the top 5% of *that same season's* exit velocities, so `in_nitro` partly
-  encoded the label — and on held-out data the hull used the future.
+  encoded the label — and on held-out data the hull used the future. Rebuilding
+  it from prior seasons only shows the leak was the whole problem: the
+  de-leaked hull slightly *improves* on v1.
 - **Run values were refit per season**, so each year's targets came from its
   own run environment.
 - **`field_error` was mapped to `field_out`**, assigning −0.250 runs to an
@@ -96,8 +121,14 @@ ambiguity — the close calls have the most data.
 exit-velocity surfaces reproduce year over year at r ≈ 0.30 from raw bins, but
 **r ≈ 0.64–0.68 when kernel-smoothed and shrunk toward the league**, and 0.71
 with a two-season prior. Hitter surfaces are nearly three-dimensional (89% of
-between-hitter variance in three components). The v2 convex hull failed because
-a top-5% threshold discards 95% of the data — not because the idea was wrong.
+between-hitter variance in three components), which is why pooling recovers so
+much.
+
+A caveat the v2 rebuild added: a hull is a poor estimator of that *signal*, but
+that does not mean it damages the *metric*. Rebuilt without the leak it edges
+v1 on every measure. The hull's real limitation is different — 91% of the
+pitches it flags are in the strike zone, so it is mostly acting as a coarse
+location feature rather than as personalization.
 
 ## Getting started
 
