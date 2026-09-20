@@ -144,3 +144,89 @@ def is_inside_hull_rowwise(plate_x: float, plate_z: float,
     """v2's original per-row membership test, kept to verify the vectorized one."""
     point = np.array([plate_x, plate_z])
     return bool(np.all(np.dot(equations[:, :-1], point) + equations[:, -1] <= 0))
+
+
+# --------------------------------------------------------------------------
+# Continuous hot zone
+# --------------------------------------------------------------------------
+
+#: Kernel bandwidth in feet, in the batter frame. A hot zone is spatially
+#: smooth, so each ball in play informs its neighbourhood rather than one bin.
+HOT_BANDWIDTH = 0.35
+
+#: Empirical-Bayes shrinkage strength, in effective balls in play. A hitter with
+#: little history reverts to the league surface instead of to noise.
+HOT_SHRINKAGE = 60.0
+
+#: Fixed prior window. Hull area grows with accumulated history -- the binary
+#: flag fires on 14.5% of pitches with one prior season and 26.1% with five --
+#: so a fixed window is what keeps the feature meaning the same thing each year.
+PRIOR_WINDOW = 2
+
+
+def hot_zone_surface(bip: pd.DataFrame, bandwidth: float = HOT_BANDWIDTH,
+                     shrinkage: float = HOT_SHRINKAGE) -> tuple[dict, float]:
+    """Per-batter expected exit velocity as a function of location.
+
+    Returns `({batter: (points, values)}, league_mean)`, enough to evaluate the
+    shrunk surface at any location later.
+
+    This replaces the convex hull. The hull thresholds at the top 5% of one
+    sample and so discards 95% of the balls in play, leaving a polygon defined
+    by a handful of points; measured year over year a hull-class estimator
+    reproduces itself at r ~ 0.30 against ~ 0.68 for this one.
+    """
+    league = float(bip['launch_speed'].mean())
+    per_batter = {}
+    for batter, g in bip.groupby('batter', observed=True):
+        pts = g[['plate_x_bat', 'plate_z_norm']].to_numpy()
+        vals = g['launch_speed'].to_numpy()
+        ok = ~np.isnan(pts).any(axis=1) & ~np.isnan(vals)
+        if ok.sum() >= 20:
+            per_batter[batter] = (pts[ok], vals[ok])
+    return per_batter, league
+
+
+def add_hot_zone(df: pd.DataFrame, surface: tuple[dict, float],
+                 bandwidth: float = HOT_BANDWIDTH, shrinkage: float = HOT_SHRINKAGE,
+                 col: str = 'hot_zone') -> pd.DataFrame:
+    """Evaluate the shrunk hot-zone surface at each pitch's location.
+
+    Continuous, unlike the hull: a pitch just outside a hitter's best region is
+    worth slightly less rather than nothing. Hitters with no history get the
+    league mean, so they are neither dropped nor marked False.
+    """
+    per_batter, league = surface
+    df = df.copy()
+    out = np.full(len(df), league)
+    batters = df['batter'].to_numpy()
+    query = df[['plate_x_bat', 'plate_z_norm']].to_numpy()
+    tracked = ~np.isnan(query).any(axis=1)
+    h2 = 2 * bandwidth * bandwidth
+
+    for batter, (pts, vals) in per_batter.items():
+        mask = (batters == batter) & tracked
+        if not mask.any():
+            continue
+        d2 = ((query[mask][:, None, :] - pts[None, :, :]) ** 2).sum(-1)
+        w = np.exp(-d2 / h2)
+        n_eff = w.sum(1)
+        raw = (w * vals).sum(1) / np.maximum(n_eff, 1e-9)
+        out[mask] = (n_eff * raw + shrinkage * league) / (n_eff + shrinkage)
+
+    df[col] = out
+    return df
+
+
+def season_hot_zone(df: pd.DataFrame, window: int = PRIOR_WINDOW,
+                    col: str = 'hot_zone') -> pd.DataFrame:
+    """Add the hot-zone feature season by season, from a fixed prior window."""
+    bip = balls_in_play(df)
+    seasons = sorted(df['season'].unique())
+    frames = []
+    for season in seasons[1:]:
+        history = bip[(bip['season'] < season) & (bip['season'] >= season - window)]
+        assert (history['season'] < season).all(), f'leak building {season}'
+        scored = add_hot_zone(df[df['season'] == season], hot_zone_surface(history), col=col)
+        frames.append(scored)
+    return pd.concat(frames, ignore_index=True)

@@ -75,12 +75,19 @@ methodology changes:
   floor), `player_metric`, `yoy_reliability`, `split_half`,
   `zone_pct_correlation` (the SOTO test), `predictive_validity`, and `harness()`
   which returns one scorecard row.
+- `src/decision.py` — the per-pitch scores, swappable: `chosen_value`,
+  `signed_edge`, `regret`, `close_weighted`, `correct_decision`.
+  `DEFAULT_SCORE = 'correct_decision'` — chosen on evidence, see v3.ipynb.
+  **Do not reinstate a run-value-weighted score without re-running the
+  comparison**: the magnitude is what carries the pitch-mix bias.
 - `src/features.py` — the nitro zone: `batter_hulls`, `add_in_nitro` (left-join
   semantics; v2's inner merge silently deleted hitters without a hull),
   `season_in_nitro` (builds each season's hulls from prior seasons only, and
   asserts it). `is_inside_hull_rowwise` is kept to verify the vectorized test.
+  Also the continuous version — `hot_zone_surface`, `add_hot_zone`,
+  `season_hot_zone` (fixed two-season prior window). Measured inert: see v3.
 - `notebooks/` — `eda.ipynb` (§1–§7, ends in a decisions table),
-  `v1_baseline.ipynb` and `v2_baseline.ipynb` (scorecard rows). All do
+  `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb` (the patch). All do
   `sys.path.insert(0, '..')`; run from the repo root.
 - Key EDA results now baked into `IMPROVEMENT_PLAN.md`: ABS band is exactly
   27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
@@ -109,6 +116,14 @@ methodology changes:
 - Hitter-level features for season *t* must be built from seasons < *t*. The
   v2/v3 nitro hull was drawn from the same season it scored, which leaked the
   outcome into its own feature.
+- **v1/v2/v3 now refer to the rebuilt versions** in `notebooks/`, not the
+  retired notebooks of the same name. The retired ones are at `fa48b14`.
+- Four findings from v3 that should not be re-litigated without new evidence:
+  the metric is `correct_decision` and magnitude-weighted scores are more
+  pitch-mix contaminated; the swing model gains 0.1pp from every pitch
+  characteristic available (0.8% → 0.9% over count-only); the take model is a
+  called-strike probability (median R² 0.991); personalization is inert whether
+  binary or continuous, because the hot zone is redundant with location.
 - Retired version history, and why each step hurt:
 
   | Version | Change | YoY R² |

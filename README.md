@@ -30,11 +30,11 @@ This framework separates the two.
 | Harness | `src/evaluate.py` — reliability, validity and contamination checks, shared by every variant |
 | v1 | `notebooks/v1_baseline.ipynb` — location + count, re-run on the corrected pipeline |
 | v2 | `notebooks/v2_baseline.ipynb` — v1 + nitro zone, leak and silent-deletion bug fixed |
+| **v3** | `notebooks/v3.ipynb` — the patch: new metric, pitch-frame features, take-model check, personalization test |
 
 | Next | |
 |---|---|
-| Track A | patch the two-model design: the metric fix first, then batter-frame features |
-| Track B | event-decomposition redesign with opportunity standardization |
+| Track B | event-decomposition redesign — though v3 puts two of its premises in doubt |
 
 ### Where the baselines landed
 
@@ -46,7 +46,13 @@ contaminated by the pitches a hitter happened to see.
 |---|---|---|---|---|---|
 | v1 (2021–26) | 0.2985 / 0.3010 | 0.750 | 0.519 | 0.077 | 0.092 |
 | v1 (2022–26 window) | 0.2974 / 0.2998 | 0.753 | 0.517 | 0.077 | 0.095 |
-| **v2** (2022–26) | 0.2973 / 0.2998 | **0.786** | **0.530** | **0.033** | **0.105** |
+| **v2** (2022–26) | 0.2973 / 0.2998 | 0.786 | 0.530 | 0.033 | 0.105 |
+| **v3** (the patch) | 0.2982 / 0.3010 | 0.806 | 0.560 | 0.207 | 0.085 |
+
+v3's gain is not in this table. Its construct validity — does the metric punish
+chasing *and* reward attacking hittable pitches — is **−0.924 / +0.871**
+against v1's −0.849 / +0.594. Changing how per-pitch scores aggregate did that;
+features and personalization barely moved anything.
 
 Two things to read off this. The baselines are **reliable but barely useful** —
 a partial correlation of ~0.10 against next-season production means the metric

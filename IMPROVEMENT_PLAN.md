@@ -533,6 +533,46 @@ Run in `notebooks/v1_baseline.ipynb` (code in `src/baselines.py`,
   is Báez, Sosa, Story. Contrast v3, which put Arráez and Hoerner at the
   bottom.
 
+## v3 (the patch): what it established
+
+`notebooks/v3.ipynb`. Four steps, each changing one thing.
+
+**A1 — the metric was the whole patch, and the simplest score won.** Construct
+validity goes from −0.849/+0.594 to −0.905/+0.831 on v1's features purely by
+changing how per-pitch scores aggregate. The winner is `correct_decision`: +1
+if the hitter picked the better action, −1 if not, **no run-value weighting**.
+Every magnitude-weighted alternative is more pitch-mix contaminated, because
+the magnitude is what varies with the pitches a hitter sees — `signed_edge`
+pays 5× more for an obvious take than a close call (Zone% 0.276), and
+**`regret`, which §0.4 specified, fails the Zone% veto outright at 0.468** with
+next-season partial r of 0.006. §0.4 should be amended.
+
+**A2 — the swing model cannot be helped.** 0.8% over a count-only lookup with
+location; **0.9%** after adding batter-frame location, handedness, velocity,
+movement and pitch type. The take model gains steadily (43.7% → 46.8%). Nothing
+observable before the pitch arrives predicts what happens once a hitter swings.
+Features still improve construct validity (−0.905/+0.831 → −0.927/+0.871), so
+sub-model fit and metric quality are separate questions.
+
+**A3 — the take model is a called-strike probability.** Median R² **0.991**
+regressing `take_pred` on a fitted `P(CS)` within each count, slopes matching
+`RE(CS,c) − RE(ball,c)` to three decimals (3-2: −0.611 vs −0.614). It is
+learning an umpire, not a run-value surface. The structural form can be adopted
+for interpretability at no cost in accuracy, and Tracks A and B converge here.
+
+**A4 — personalization is inert, even done well.** No personalization, binary
+flag, and continuous surface are identical to within noise (−0.942/+0.896,
+−0.939/+0.894, −0.943/+0.898). The surface reproduces itself year over year
+more than twice as well as the flag and still changes nothing, because the hot
+zone is redundant with location — 91% of flagged pitches are simply in the
+strike zone. **A feature can be reliable, measure a real trait, and contribute
+nothing.**
+
+**Consequences for Track B.** Two of its premises are now in doubt. The event
+decomposition assumes the swing side yields to more structure, and A2 puts the
+ceiling very low regardless of model form. B4's personalized contact surface is
+the feature A4 just showed to be inert. The take-side result is the usable one.
+
 ## Execution order
 
 | Step | Track | Output |
@@ -569,9 +609,13 @@ season-*t+1* ΔRE per plate appearance, controlling for season-*t* ΔRE/PA.
 | v1 re-run, 2022–26 window | n/a | 0.2974 / 0.2998 | 0.753 | 0.58 / 0.56 / 0.51 / 0.43 | 0.077 | 0.095 |
 | **v2 rebuilt (prior-season hull)** | n/a | **0.2973 / 0.2998** | **0.786** | **0.57 / 0.56 / 0.52 / 0.47** | **0.033** | **0.105** |
 | Creally 5-zone | | | | | | |
-| A1 metric fix | | | | | | |
-| A2 + pitch frame | | | | | | |
-| A4 v4a (prior nitro) | | | | | | |
+| **v3 rebuilt (the patch)** | n/a | **0.2982 / 0.3010** | **0.806** | **0.56 mean** | **0.207** | **0.085** |
+
+v3's row uses the `correct_decision` metric and the full pitch frame. Its
+construct validity — the check that actually discriminates — is **−0.924 /
++0.871** (chase and zone-swing, each partialled on the other) against v1's
+−0.849 / +0.594. That is the patch's actual gain; the columns above barely
+move.
 | B2 v4b generic | | | | | | |
 | B3 v4b standardized | | | | | | |
 | B4 v4b personalized | | | | | | |

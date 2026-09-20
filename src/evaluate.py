@@ -145,6 +145,53 @@ def zone_pct_correlation(df: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame
     return pd.DataFrame(rows).set_index('season')
 
 
+def _partial_corr(y: np.ndarray, x: np.ndarray, z: np.ndarray) -> float:
+    """Correlation of y with x, holding z fixed, by residualising both on z."""
+    ry = y - np.polyval(np.polyfit(z, y, 1), z)
+    rx = x - np.polyval(np.polyfit(z, x, 1), z)
+    return float(np.corrcoef(ry, rx)[0, 1])
+
+
+def construct_validity(df: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
+    """Does the metric behave the way swing-decision quality must?
+
+    Two requirements, and a metric has to satisfy both: punish chasing, and
+    reward attacking hittable pitches.
+
+    **Report the partials.** Chase rate and zone-swing rate correlate about
+    +0.5 across hitters, because aggression is a single dimension -- an
+    aggressive hitter swings more at everything. Since the chase penalty is
+    roughly three times the zone-swing bonus, a raw correlation against
+    zone-swing is swamped by it and comes out near zero, which reads as though
+    the metric ignores half the construct. It does not; holding chase rate
+    fixed recovers a strong positive relationship. The raw columns are returned
+    alongside so the confound stays visible, but the partials are the numbers
+    to judge on.
+
+    This is the check that actually discriminates between candidate scores.
+    Reliability cannot: it rewards a metric that is stably wrong exactly as much
+    as one that is stably right.
+    """
+    in_zone = D.in_rulebook_zone(df, ball_edge=True)
+    keys = ['season', 'batter']
+    behaviour = pd.DataFrame({
+        'chase': df[~in_zone].groupby(keys, observed=True)['swing'].mean(),
+        'zone_swing': df[in_zone].groupby(keys, observed=True)['swing'].mean(),
+    }).reset_index()
+
+    m = scores.merge(behaviour, on=keys).dropna(subset=['chase', 'zone_swing'])
+    v, chase, zsw = (m['decision_value'].to_numpy(), m['chase'].to_numpy(),
+                     m['zone_swing'].to_numpy())
+    return pd.DataFrame([{
+        'hitters': len(m),
+        'chase (raw)': float(np.corrcoef(v, chase)[0, 1]),
+        'zone_swing (raw)': float(np.corrcoef(v, zsw)[0, 1]),
+        'chase | zone_swing': _partial_corr(v, chase, zsw),
+        'zone_swing | chase': _partial_corr(v, zsw, chase),
+        'corr(chase, zone_swing)': float(np.corrcoef(chase, zsw)[0, 1]),
+    }])
+
+
 def _production(df: pd.DataFrame) -> pd.DataFrame:
     """Offensive production per batter-season: delta run expectancy per PA.
 
@@ -200,22 +247,34 @@ def predictive_validity(df: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
 
 def harness(df: pd.DataFrame, models: ActionModels, label: str,
             value_col: str = 'y_pred', train_seasons=None) -> dict:
-    """Run every check and return the parts, plus a one-line scorecard summary."""
+    """Run every check and return the parts, plus a one-line scorecard summary.
+
+    The summary orders the columns the way the checks should be weighed:
+    construct validity first, since it is the only one that tests whether the
+    metric measures swing decisions at all; then reliability as a floor; then
+    Zone% as a contamination veto. Predictive validity is reported last and is
+    not decisive -- it asks whether the metric predicts future *production*,
+    which is mostly hitting ability, so a clean decision metric can legitimately
+    score low on it.
+    """
     sub = rmse_vs_count_baseline(df, models)
     scores = player_metric(df, value_col)
     yoy = yoy_reliability(scores, train_seasons)
     sh = split_half(df, value_col)
     zp = zone_pct_correlation(df, scores)
     pv = predictive_validity(df, scores)
+    cv = construct_validity(df, scores)
 
     summary = {
         'variant': label,
-        'take RMSE vs count-only': f"{sub.loc['take','rmse']:.4f} / {sub.loc['take','rmse_count_only']:.4f}",
-        'swing RMSE vs count-only': f"{sub.loc['swing','rmse']:.4f} / {sub.loc['swing','rmse_count_only']:.4f}",
+        'chase | zone_swing': round(cv['chase | zone_swing'].iloc[0], 3),
+        'zone_swing | chase': round(cv['zone_swing | chase'].iloc[0], 3),
         'split-half r': round(sh.r_spearman_brown.mean(), 3),
         'YoY R2 (mean)': round(yoy.r2.mean(), 3),
         'Zone% |r|': round(zp.r.abs().mean(), 3),
         'next-season r (partial)': round(pv.r_partial.mean(), 3),
+        'take RMSE vs count-only': f"{sub.loc['take','rmse']:.4f} / {sub.loc['take','rmse_count_only']:.4f}",
+        'swing RMSE vs count-only': f"{sub.loc['swing','rmse']:.4f} / {sub.loc['swing','rmse_count_only']:.4f}",
     }
-    return {'summary': summary, 'sub_models': sub, 'scores': scores,
-            'yoy': yoy, 'split_half': sh, 'zone_pct': zp, 'predictive': pv}
+    return {'summary': summary, 'sub_models': sub, 'scores': scores, 'yoy': yoy,
+            'split_half': sh, 'zone_pct': zp, 'predictive': pv, 'construct': cv}
