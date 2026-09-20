@@ -155,11 +155,18 @@ every analysis starts from the same definitions.
 ## Layout
 
 ```
-src/data.py          loading, caching, cleaning, harmonization, derived features
-data_fetch.ipynb     Statcast pulls (Stats API season bounds, overseas games excluded)
-notebooks/eda.ipynb  exploratory analysis, §1–§7
-data/                raw CSVs and parquet cache (gitignored)
-IMPROVEMENT_PLAN.md  the roadmap
+src/data.py                 loading, caching, cleaning, 2026 harmonization, derived features
+src/features.py             the nitro zone: prior-season hulls, membership test
+src/baselines.py            v1/v2 action models and the per-pitch scoring rules
+src/evaluate.py             the shared harness — reliability, validity, Zone% contamination
+
+data_fetch.ipynb            Statcast pulls (Stats API season bounds, overseas games excluded)
+notebooks/eda.ipynb         exploratory analysis, §1–§7
+notebooks/v1_baseline.ipynb location + count
+notebooks/v2_baseline.ipynb v1 + nitro zone, de-leaked
+
+data/                       raw CSVs and parquet cache (gitignored)
+IMPROVEMENT_PLAN.md         the roadmap and the scorecard
 mlb_swing_decision_related_work.md
 ```
 
