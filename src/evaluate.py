@@ -1,16 +1,20 @@
 """Evaluation harness for swing-decision metrics.
 
-Every variant -- v1, v2 leaky and clean, Creally, Track A, Track B -- is scored
-by these functions, so the scorecard in IMPROVEMENT_PLAN.md compares like with
-like. Two choices here exist because of specific past failures:
+Every variant is scored by these functions, so the scorecard in
+IMPROVEMENT_PLAN.md compares like with like. Two of the choices here are not
+obvious:
 
-* RMSE is always reported against a count-only baseline. The target is a
-  function of (outcome, count), so a count-only lookup is the floor and bare
-  RMSE is uninterpretable -- v3's take-model RMSE of 0.044 looked excellent and
-  was mostly just low outcome variance.
+* RMSE is always reported against a count-only baseline, never alone. The
+  target is the mean run value of an (outcome, count) pair, so a model given
+  only the count already reproduces most of it; the gap above that floor is
+  what the other features buy. Absolute RMSE mostly reflects which action is
+  being scored -- a take has three possible outcomes whose values sit within a
+  few hundredths of a run at a fixed count, a swing has seven spanning nearly
+  two runs -- so the level says little and the gap says everything.
 * Zone% correlation is a first-class output. Salorio retired SOTO after finding
   Zone% explained ~23% of its variance, i.e. it was substantially measuring the
-  pitches a hitter was thrown rather than his decisions.
+  pitches a hitter was thrown rather than his decisions. Reliability cannot
+  catch that: a metric of the wrong quantity can be perfectly stable.
 """
 
 from __future__ import annotations

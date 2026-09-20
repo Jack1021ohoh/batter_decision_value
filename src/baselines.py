@@ -1,12 +1,12 @@
-"""Baseline swing-decision models, reproduced on the corrected pipeline.
+"""Baseline swing-decision models.
 
-The historical v1/v2/v3 numbers (YoY R² 0.57 / 0.34 / 0.16) came from a data
-path with several defects the rebuild fixes, so they cannot be compared with
-anything produced now. These reimplementations keep each baseline's *design*
-and run it on correct data, which is what makes the comparison mean something.
+A baseline is only useful if it differs from the thing it is benchmarking in
+exactly one respect. These keep each baseline's *design* -- its feature set and
+its player metric -- and run it on the same pipeline, learner and
+hyperparameters as everything else, so a difference in the scorecard is
+attributable to the design rather than to how the data was prepared.
 
-Specs come from IMPROVEMENT_PLAN.md -> "Baselines to reproduce"; the retired
-notebooks are in git history at fa48b14.
+Specs come from IMPROVEMENT_PLAN.md -> "Baselines to reproduce".
 """
 
 from __future__ import annotations
