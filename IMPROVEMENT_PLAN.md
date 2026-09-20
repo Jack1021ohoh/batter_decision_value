@@ -297,7 +297,7 @@ an assumption this plan carried.
 
 **The hull is not the problem.** v2 rebuilt edges v1 on every measure over the
 same 2022–2026 window: split-half 0.786 vs 0.753, YoY R² 0.530 vs 0.517, Zone%
-|r| 0.033 vs 0.077, next-season partial r 0.089 vs 0.084. The historical
+|r| 0.033 vs 0.077, next-season partial r 0.105 vs 0.095. The historical
 collapse from 0.57 to 0.34 was **the leak**, compounded by a simultaneous
 switch of learner and hyperparameters — not evidence against the feature. v2's
 idea was never actually tested by v2.
@@ -565,9 +565,9 @@ season-*t+1* ΔRE per plate appearance, controlling for season-*t* ΔRE/PA.
 |---|---|---|---|---|---|---|
 | v3 historical (old pipeline, not comparable) | — | 0.296 | — | 0.16 | — | — |
 | v1 historical (old pipeline, not comparable) | — | — | — | 0.57 | — | — |
-| **v1 re-run** | n/a | **0.2985 / 0.3010 (+0.8%)** | **0.75** | **0.58 / 0.56 / 0.51 / 0.43** | **0.077** | **0.076** |
-| v1 re-run, 2022–26 window | n/a | 0.2974 / 0.2998 | 0.753 | 0.58 / 0.56 / 0.51 / 0.43 | 0.077 | 0.084 |
-| **v2 rebuilt (prior-season hull)** | n/a | **0.2973 / 0.2998** | **0.786** | **0.57 / 0.56 / 0.52 / 0.47** | **0.033** | **0.089** |
+| **v1 re-run** | n/a | **0.2985 / 0.3010 (+0.8%)** | **0.75** | **0.58 / 0.56 / 0.51 / 0.43** | **0.077** | **0.092** |
+| v1 re-run, 2022–26 window | n/a | 0.2974 / 0.2998 | 0.753 | 0.58 / 0.56 / 0.51 / 0.43 | 0.077 | 0.095 |
+| **v2 rebuilt (prior-season hull)** | n/a | **0.2973 / 0.2998** | **0.786** | **0.57 / 0.56 / 0.52 / 0.47** | **0.033** | **0.105** |
 | Creally 5-zone | | | | | | |
 | A1 metric fix | | | | | | |
 | A2 + pitch frame | | | | | | |

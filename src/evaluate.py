@@ -151,9 +151,18 @@ def _production(df: pd.DataFrame) -> pd.DataFrame:
     Taken from our own data rather than a linear-weights wOBA, so the measure
     is internally consistent with the modelling target and needs no external
     weight table maintained per season.
+
+    A plate appearance is a distinct (game_pk, at_bat_number) pair.
+    `at_bat_number` alone is the at-bat index *within a game*, so counting its
+    distinct values over a season counts batting slots -- about 82 for a
+    regular, against roughly 650 actual plate appearances -- and because that
+    saturates near the number of available slots, the resulting rate would
+    track playing time rather than production.
     """
-    pa = df.groupby(['season', 'batter'], observed=True)['at_bat_number'].nunique()
-    re = df.groupby(['season', 'batter'], observed=True)['delta_run_exp'].sum()
+    grouped = df.groupby(['season', 'batter'], observed=True)
+    pa = grouped.apply(lambda g: g.groupby(['game_pk', 'at_bat_number']).ngroups,
+                       include_groups=False).rename('pa')
+    re = grouped['delta_run_exp'].sum()
     return (re / pa).rename('re_per_pa').reset_index()
 
 
