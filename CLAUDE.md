@@ -76,11 +76,13 @@ belong in `FINDINGS.md`, not there.
   which returns one scorecard row.
 - `src/decision.py` — the per-pitch scores, swappable: `chosen_value`,
   `signed_edge`, `regret`, `close_weighted`, `correct_decision`.
-  `DEFAULT_SCORE = 'correct_decision'` — chosen on evidence, see v3.ipynb.
-  **Do not reinstate a run-value-weighted score without re-running the
-  comparison**: the magnitude is what carries the pitch-mix bias.
+  `DEFAULT_SCORE = 'signed_edge'` — keeps the run-value magnitude, as every
+  published metric does, and unlike a sign-based score can register a feature
+  that shifts `Q_swing` without flipping the decision. **Changing it re-opens a
+  settled comparison** — the magnitude is what carries the pitch-mix bias, and
+  four attempts to have both properties failed (`FINDINGS.md`).
 - `src/features.py` — the nitro zone: `batter_hulls`, `add_in_nitro` (left-join
-  semantics; v2's inner merge silently deleted hitters without a hull),
+  semantics, so a hitter with no hull scores False rather than being dropped),
   `season_in_nitro` (builds each season's hulls from prior seasons only, and
   asserts it). `is_inside_hull_rowwise` is kept to verify the vectorized test.
   Also the continuous version — `hot_zone_surface`, `add_hot_zone`,
