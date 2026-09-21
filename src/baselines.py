@@ -6,7 +6,8 @@ its player metric -- and run it on the same pipeline, learner and
 hyperparameters as everything else, so a difference in the scorecard is
 attributable to the design rather than to how the data was prepared.
 
-Specs come from IMPROVEMENT_PLAN.md -> "Baselines to reproduce".
+What each baseline's design was, and what it measured, is recorded in
+FINDINGS.md.
 """
 
 from __future__ import annotations

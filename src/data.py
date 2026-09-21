@@ -8,7 +8,7 @@ Everything downstream -- EDA and both modelling tracks -- should load through
 `load_seasons()` so the cleaning rules and the 2026 harmonization are applied
 in exactly one place.
 
-See IMPROVEMENT_PLAN.md §0 for why each rule is what it is.
+FINDINGS.md records what the data established and why each rule is what it is.
 """
 
 from __future__ import annotations

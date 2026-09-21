@@ -1,8 +1,7 @@
 """Evaluation harness for swing-decision metrics.
 
-Every variant is scored by these functions, so the scorecard in
-IMPROVEMENT_PLAN.md compares like with like. Two of the choices here are not
-obvious:
+Every variant is scored by these functions, so the results table in
+FINDINGS.md compares like with like. Two of the choices here are not obvious:
 
 * RMSE is always reported against a count-only baseline, never alone. The
   target is the mean run value of an (outcome, count) pair, so a model given
