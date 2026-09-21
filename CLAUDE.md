@@ -122,8 +122,12 @@ methodology changes:
   the metric is `correct_decision` and magnitude-weighted scores are more
   pitch-mix contaminated; the swing model gains 0.1pp from every pitch
   characteristic available (0.8% → 0.9% over count-only); the take model is a
-  called-strike probability (median R² 0.991); personalization is inert whether
-  binary or continuous, because the hot zone is redundant with location.
+  called-strike probability (median R² 0.991); **personalization is a large
+  effect that interacts with the metric** — hot zones differ between hitters at
+  the same location by 0.6× the league location effect, and the feature takes
+  next-season predictive r from 0.099 to 0.228 under `chosen_value`, while
+  `correct_decision` cannot see it at all (it flips the recommended action on
+  1.7% of pitches and is sign-based). Never test a feature against one metric.
 - Retired version history, and why each step hurt:
 
   | Version | Change | YoY R² |

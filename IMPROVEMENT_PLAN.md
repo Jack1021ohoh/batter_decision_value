@@ -560,18 +560,41 @@ regressing `take_pred` on a fitted `P(CS)` within each count, slopes matching
 learning an umpire, not a run-value surface. The structural form can be adopted
 for interpretability at no cost in accuracy, and Tracks A and B converge here.
 
-**A4 — personalization is inert, even done well.** No personalization, binary
-flag, and continuous surface are identical to within noise (−0.942/+0.896,
-−0.939/+0.894, −0.943/+0.898). The surface reproduces itself year over year
-more than twice as well as the flag and still changes nothing, because the hot
-zone is redundant with location — 91% of flagged pitches are simply in the
-strike zone. **A feature can be reliable, measure a real trait, and contribute
-nothing.**
+**A4 — personalization is one of the largest effects here, and A1's metric hid
+it.** Under `correct_decision` all three variants are identical to ±0.002, which
+looks like the feature being worthless. It is not:
 
-**Consequences for Track B.** Two of its premises are now in doubt. The event
-decomposition assumes the swing side yields to more structure, and A2 puts the
-ceiling very low regardless of model form. B4's personalized contact surface is
-the feature A4 just showed to be inert. The take-side result is the usable one.
+- Hitters differ at the same location by **1.78 mph** of expected exit
+  velocity, about **0.6× the entire league-wide location effect** (87.3–90.3 mph
+  across the zone), and they differ in *where* their best region sits — the
+  modal best cell holds only 20% of hitter-seasons.
+- The feature moves `Q_swing` by SD 0.0096 runs against `Q_swing`'s own 0.0407,
+  a quarter of its scale — but flips the *recommended action* on only **1.7%**
+  of pitches. `correct_decision` is a sign, so 98% of the effect cannot reach it.
+
+Measured against metrics that can see it:
+
+| metric | split-half | YoY R² | next-season r |
+|---|---|---|---|
+| `chosen_value` | 0.751 → **0.888** | 0.507 → **0.690** | 0.099 → **0.228** |
+| `signed_edge` | 0.818 → 0.836 | 0.587 → 0.618 | 0.069 → 0.105 |
+| `correct_decision` | 0.815 → 0.816 | 0.566 → 0.564 | 0.091 → 0.091 |
+
+Under `chosen_value` the gains are large but construct validity *degrades*
+(−0.864 → −0.643) — the feature pulls the score toward measuring hitting
+ability, which is also why it predicts production so much better. Under
+`signed_edge` reliability, contamination and usefulness all improve together
+with construct validity barely moving, which makes it the best overall pairing.
+
+**A1 and A4 are not independent.** `correct_decision` still has much the best
+construct validity (−0.943/+0.898) and dropping magnitude is still what removes
+the pitch-mix bias — but the same insensitivity makes it unable to benefit from
+an informative feature. Testing a feature against one metric was the error.
+
+**Consequences for Track B.** The event decomposition's premise is in doubt —
+A2 puts the swing-side ceiling very low regardless of model form. But **B4's
+personalized contact surface is vindicated**, and is the most valuable feature
+found here once measured with a metric that can register it. The take-side result is the usable one.
 
 ## Execution order
 

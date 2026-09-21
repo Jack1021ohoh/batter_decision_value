@@ -51,8 +51,17 @@ contaminated by the pitches a hitter happened to see.
 
 v3's gain is not in this table. Its construct validity — does the metric punish
 chasing *and* reward attacking hittable pitches — is **−0.924 / +0.871**
-against v1's −0.849 / +0.594. Changing how per-pitch scores aggregate did that;
-features and personalization barely moved anything.
+against v1's −0.849 / +0.594. Changing how per-pitch scores aggregate did that.
+
+The other large effect is personalization, and it interacts with the metric
+choice. A hitter's hot zone differs from another's at the *same location* by
+1.78 mph of expected exit velocity — about 0.6× the entire league-wide location
+effect — and hitters differ in where their best region sits. Adding it takes
+next-season predictive correlation from 0.099 to **0.228** under a
+magnitude-sensitive score, while a sign-based score cannot register it at all
+(it flips the recommended action on only 1.7% of pitches). Which score to
+prefer depends on whether you want to rank pure decision-making or produce a
+number that carries information about the hitter.
 
 Two things to read off this. The baselines are **reliable but barely useful** —
 a partial correlation of ~0.10 against next-season production means the metric
