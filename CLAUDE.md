@@ -8,12 +8,6 @@ Scores MLB batters' swing/take decisions from Statcast pitch data, 2021–2026.
 No build, lint, or test suite; `src/` holds the shared library and the analysis
 lives in notebooks.
 
-**The original v1–v3 notebooks are gone** — retired for the bugs listed in
-README.md ("Why v3 was retired"), recoverable from git history at `fa48b14`
-(`git show fa48b14:batter_decision_value_v3.ipynb`). Do not reintroduce their
-logic. The rebuilt `notebooks/v1_baseline.ipynb`, `v2_baseline.ipynb` and
-`v3.ipynb` supersede them, and `FINDINGS.md` records what each established.
-
 Two documents should be read before proposing methodology changes:
 - `FINDINGS.md` — what the data established: results, the metric analysis, the
   2026 ABS regime, and method notes. Every number is reproducible from a
@@ -120,27 +114,26 @@ belong in `FINDINGS.md`, not there.
   ~0.8 in spread by pitch type (FF least, CU most), so a constant offset does
   not fix it. Convert 2021–25 forward with the trajectory delta in
   `data.to_middle_of_plate()` before pooling seasons.
-- Hitter-level features for season *t* must be built from seasons < *t*. The
-  v2/v3 nitro hull was drawn from the same season it scored, which leaked the
-  outcome into its own feature.
-- **v1/v2/v3 now refer to the rebuilt versions** in `notebooks/`, not the
-  retired notebooks of the same name. The retired ones are at `fa48b14`.
-- Four findings from v3 that should not be re-litigated without new evidence:
-  the metric is `correct_decision` and magnitude-weighted scores are more
-  pitch-mix contaminated; the swing model gains 0.1pp from every pitch
-  characteristic available (0.8% → 0.9% over count-only); the take model is a
-  called-strike probability (median R² 0.991); **personalization is a large
-  effect that interacts with the metric** — hot zones differ between hitters at
-  the same location by 0.6× the league location effect, and the feature takes
-  next-season predictive r from 0.099 to 0.228 under `chosen_value`, while
-  `correct_decision` cannot see it at all (it flips the recommended action on
-  1.7% of pitches and is sign-based). Never test a feature against one metric.
-- Retired version history, and why each step hurt:
-
-  | Version | Change | YoY R² |
-  |---|---|---|
-  | v1 | location + count, mean chosen-action value over all pitches | 0.57 |
-  | v2 | + same-season `in_nitro` hull | 0.34 |
-  | v3 | metric changed to a takes-only rate | 0.16 |
-
-  The two drops are independent — v2 was the feature, v3 was the metric.
+- Hitter-level features for season *t* must be built from seasons < *t*, or the
+  feature encodes the outcome it is used to predict. `season_in_nitro` and
+  `season_hot_zone` enforce and assert it.
+- Findings that should not be re-litigated without new evidence
+  (all in `FINDINGS.md`, all reproducible from `notebooks/v3.ipynb`):
+  - The selected score is **`signed_edge`**. It carries a pitch-mix
+    contamination that the published metrics share and four attempts failed to
+    remove; dropping the magnitude fixes it but makes the score blind to the
+    most valuable feature available.
+  - **Never judge the swing model by pitch-level RMSE.** Only 1.9% of that
+    variance is learnable; scored on the conditional means it estimates, the
+    model recovers 90.6–94.5%.
+  - The take model **is** a called-strike probability (median R² 0.991), so a
+    hitter-specific feature cannot help it. Contact quality does not change an
+    umpire's call.
+  - **Personalization is a large effect that interacts with the metric.** Hot
+    zones differ between hitters at the same location by 0.6× the league
+    location effect. A sign-based score cannot register it, since the feature
+    flips the recommended action on only 1.7% of pitches. **Never test a
+    feature against one metric.**
+  - **Never vary two things at once.** Compare feature sets with the metric,
+    learner, hyperparameters and seasons held fixed; compare metrics with the
+    models held fixed.
