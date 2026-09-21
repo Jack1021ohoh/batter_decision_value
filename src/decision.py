@@ -111,8 +111,18 @@ SCORES = {
     'correct_decision': correct_decision,
 }
 
-#: The score A1 selected, used by later steps unless they are comparing metrics.
-DEFAULT_SCORE = 'correct_decision' 
+#: The selected score. `signed_edge` keeps the run-value magnitude, which is
+#: what every published metric does (SwRV, SOTO, Nestico, Creally, EAGLE) and
+#: what a decision metric needs if it is to register a feature that shifts
+#: Q_swing without flipping the decision.
+#:
+#: `correct_decision` measures cleaner on pitch-mix contamination, but it buys
+#: that by discarding magnitude -- treating a nearly indifferent call and an
+#: obvious blunder alike -- and is consequently blind to the single most
+#: valuable feature found in this project. Four attempts to get both
+#: properties (regret, close_weighted, a departure-weighted score, and
+#: opportunity standardization) all failed; see FINDINGS.md.
+DEFAULT_SCORE = 'signed_edge'
 
 
 def add_scores(df: pd.DataFrame, which=None) -> pd.DataFrame:

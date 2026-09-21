@@ -26,32 +26,104 @@ reaches **−0.924 / +0.871** against v1's **−0.849 / +0.594**.
 
 ---
 
-## The metric is most of the model
+## Choosing the per-pitch score
 
-Swapping only how per-pitch scores aggregate, with features and models
-identical, moves construct validity from −0.849/+0.594 to −0.905/+0.831.
-Nothing else in the project moves anything comparable.
+Every candidate is built from the same counterfactual pair, `q_swing` and
+`q_take`, so the models are identical and only the aggregation differs. They
+disagree about who decides well — rank correlation ~0.72 between the extremes —
+so the choice is not cosmetic.
 
-**The winning score is the simplest one available**: +1 when the hitter picked
-the better action, −1 when he did not, with no run-value weighting. Every
-magnitude-weighted alternative is more contaminated by pitch mix, because the
-magnitude is exactly what varies with the pitches a hitter sees.
+| score | definition |
+|---|---|
+| `chosen_value` | value of the action taken |
+| **`signed_edge`** | **`Q_chosen − Q_alternative` — how much better the choice was** |
+| `regret` | `max(0, −signed_edge)`; zero whenever the hitter was right |
+| `close_weighted` | signed correctness weighted by how close the call was |
+| `correct_decision` | ±1, no magnitude |
 
-| score | contamination (Zone% \|r\|) | why |
-|---|---|---|
-| value of the action taken | 0.077 | taken balls and swung strikes both pay, so they largely cancel |
-| chosen minus counterfactual | 0.276 | pays 5× more for an obvious take than a close call, so it rewards being thrown junk |
-| regret, `max(0, −signed)` | 0.468 | its largest error is taking a hittable pitch, so more strikes means more regret |
-| **correct decision (±1)** | 0.230 | no magnitude, so none of the above |
+**`signed_edge` is selected.** It keeps the run-value magnitude, which is what
+every published metric uses — SwRV, SOTO, Nestico's Decision Value, Creally's
+wDV, EAGLE all report run value per 100 pitches. It has the best construct
+validity of the magnitude scores at every feature set, and unlike a sign-based
+score it can register a feature that shifts `Q_swing` without flipping the
+decision, which matters a great deal (see personalization below).
 
-A closeness-kernel sweep confirms the mechanism: as the kernel widens, the
-weighted score converges on the unweighted one (correlation 0.997) and measures
-better the whole way.
+### The contamination problem, and four failed fixes
 
-**Caveat, and it matters:** discarding magnitude is also what makes this score
-unable to benefit from an informative feature. See personalization below.
+Magnitude-weighted scores are contaminated by pitch mix, because the magnitude
+is exactly what varies with the pitches a hitter is thrown. `signed_edge` pays
+**+0.086** per pitch for laying off an obvious ball against **+0.016** for
+getting a genuinely close call right — so two hitters with identical judgement
+score differently if they see different mixes. Measured on real hitters:
+
+| | correct-decision rate | Zone% | `signed_edge` | `correct_decision` |
+|---|---|---|---|---|
+| Bryan De La Cruz 2022 | 0.694 | 0.379 | 96.1 | 101.2 |
+| Caleb Durbin 2025 | 0.692 | 0.490 | 102.7 | 100.6 |
+
+Identical judgement, 6.6 points apart. Holding decision quality fixed across
+all hitters, contamination is +0.159 for `signed_edge` against +0.008 for
+`correct_decision`.
+
+Scaling cannot fix this. Z-score, OPS+-style ratio and percentile rank all
+correlate 0.999+ with one another and leave the contamination identical
+(+0.259 / +0.259 / +0.244) — they are monotone transforms of the same raw mean,
+so the ordering, and any bias in it, survives untouched.
+
+Four attempts to remove it at the source, all of which failed:
+
+1. **`regret`** — one-sided, so obvious correct decisions cannot inflate it.
+   But its largest error is taking a hittable pitch, so contamination rose to
+   0.468, the worst of any candidate, with next-season validity of 0.006.
+2. **`correct_decision`** — drop magnitude entirely. Cleanest (+0.008) but
+   discards the value information, and is blind to the best feature available.
+3. **Departure weighting** — `(swung − P(league swings)) × edge`, so a pitch
+   everyone takes contributes ~0 to everyone. The mean payout is indeed ~0 in
+   every region, and reliability was the best of anything tested (split-half
+   0.862). But contamination reached **+0.360**: killing the mean leaves the
+   variance, which is dominated by errors, and error opportunity scales with
+   pitch mix.
+4. **Opportunity standardization** — score within strata, reweight to the
+   league mix. Made it *worse* at every stratification tried (0.131 → 0.244–0.279),
+   so the contamination is not a mix effect.
+
+A SEAGER-style difference of within-class rates over-corrects in the opposite
+direction (−0.292).
+
+**And the Zone% test is lenient, not strict.** Better hitters see fewer strikes
+(corr(Zone%, production) = −0.228, monotone across quintiles), so a metric that
+correctly identifies good hitters gets a negative Zone% pull that partly
+cancels the positive bias. Holding hitter quality fixed, every metric looks
+worse: `chosen_value` +0.059 → +0.162, `correct_decision` +0.195 → +0.265,
+`signed_edge` +0.244 → +0.333.
+
+So the contamination is **a real, unsolved limitation that the published
+metrics share** — it is what retired SOTO — and not something this project has
+fixed. `signed_edge` is chosen despite it, not because it escapes it.
 
 ---
+
+## The feature ladder, at a fixed metric
+
+Only the feature set varies; pipeline, learner, seasons (2022–26) and metric
+all held constant.
+
+| features | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
+|---|---|---|---|---|---|---|
+| location + count | −0.894 | 0.626 | 0.817 | 0.590 | 0.274 | 0.049 |
+| + nitro hull | −0.881 | 0.602 | 0.816 | 0.587 | 0.250 | 0.056 |
+| + full pitch frame | **−0.909** | **0.685** | 0.815 | 0.583 | 0.269 | 0.070 |
+| + hot-zone surface | −0.884 | 0.643 | **0.835** | **0.613** | **0.192** | **0.110** |
+
+The complete patch **doubles predictive validity** (0.049 → 0.110), cuts
+contamination ~30%, raises reliability, and leaves construct validity flat. The
+hot-zone surface supplies most of it; the pitch frame mainly buys construct
+validity.
+
+Under `chosen_value` the same hot-zone feature is far more dramatic —
+next-season 0.095 → **0.236**, split-half 0.753 → 0.887 — but construct validity
+collapses (−0.856 → −0.644), the signature of a score drifting from "did he
+decide well" toward "is he a good hitter".
 
 ## Pitch-level RMSE is the wrong instrument for the swing model
 
