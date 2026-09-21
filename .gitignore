@@ -16,3 +16,8 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# Working roadmap. Deliberately untracked: it is scaffolding, it describes
+# paths that were abandoned as the work went on, and a stale plan misleads a
+# reader of the finished project. The durable results live in FINDINGS.md.
+IMPROVEMENT_PLAN.md

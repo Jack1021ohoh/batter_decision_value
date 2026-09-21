@@ -8,22 +8,24 @@ Scores MLB batters' swing/take decisions from Statcast pitch data, 2021–2026.
 No build, lint, or test suite; `src/` holds the shared library and the analysis
 lives in notebooks.
 
-**The v1–v3 notebooks are gone** — retired for the bugs listed in README.md
-("Why v3 was retired"), recoverable from git history at `fa48b14`
+**The original v1–v3 notebooks are gone** — retired for the bugs listed in
+README.md ("Why v3 was retired"), recoverable from git history at `fa48b14`
 (`git show fa48b14:batter_decision_value_v3.ipynb`). Do not reintroduce their
-logic; `IMPROVEMENT_PLAN.md` supersedes it. The v1 metric is still worth
-reproducing as a benchmark (plan "Baselines to reproduce"), but from the spec
-in the plan, not by copying the old notebook.
+logic. The rebuilt `notebooks/v1_baseline.ipynb`, `v2_baseline.ipynb` and
+`v3.ipynb` supersede them, and `FINDINGS.md` records what each established.
 
-Two planning documents govern the rebuild and should be read before proposing
-methodology changes:
-- `IMPROVEMENT_PLAN.md` — the roadmap. Two tracks (A: patch the existing
-  two-model design; B: event-decomposition redesign) on one shared evaluation
-  harness, with a "Settled decisions" section at the end listing points that
-  were debated and closed.
+Two documents should be read before proposing methodology changes:
+- `FINDINGS.md` — what the data established: results, the metric analysis, the
+  2026 ABS regime, and method notes. Every number is reproducible from a
+  notebook. **Check here before re-deriving anything**; several conclusions in
+  it reversed earlier assumptions and the reasoning is recorded.
 - `mlb_swing_decision_related_work.md` — literature review (Yee–Deshpande,
-  EAGLE, SEAGER, SwRV, SOTO, Nestico, Creally, Vock & Vock). Track B follows
-  its §5 model direction and §7 risk list.
+  EAGLE, SEAGER, SwRV, SOTO, Nestico, Creally, Vock & Vock).
+
+`IMPROVEMENT_PLAN.md` is the working roadmap and is **gitignored on purpose** —
+it is scaffolding, it still describes paths that were abandoned, and a stale
+plan misleads. It may be absent on a fresh clone; that is fine. Durable results
+belong in `FINDINGS.md`, not there.
 
 ## Running
 
@@ -89,7 +91,7 @@ methodology changes:
 - `notebooks/` — `eda.ipynb` (§1–§7, ends in a decisions table),
   `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb` (the patch). All do
   `sys.path.insert(0, '..')`; run from the repo root.
-- Key EDA results now baked into `IMPROVEMENT_PLAN.md`: ABS band is exactly
+- Key EDA results now in `FINDINGS.md`: ABS band is exactly
   27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
   suffices); counterfactual support fails only on 3-0 off the plate; 41% of
   batter-location cells hold <10 balls in play, so per-hitter surfaces must be
@@ -112,7 +114,7 @@ methodology changes:
   zone. Measured effect: the ball sits ~1 inch lower at middle-of-plate, with a
   ~0.8 in spread by pitch type (FF least, CU most), so a constant offset does
   not fix it. Convert 2021–25 forward with the trajectory delta in
-  IMPROVEMENT_PLAN.md §0.1.1 before pooling seasons.
+  `data.to_middle_of_plate()` before pooling seasons.
 - Hitter-level features for season *t* must be built from seasons < *t*. The
   v2/v3 nitro hull was drawn from the same season it scored, which leaked the
   outcome into its own feature.

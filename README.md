@@ -71,7 +71,9 @@ under 1%**, against ~44% for the take model: location and count say almost
 nothing about what happens when a hitter swings, which is what Track B's event
 decomposition is aimed at.
 
-[`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) is the roadmap.
+[`FINDINGS.md`](FINDINGS.md) collects what the data established — results, the
+metric analysis, the 2026 ABS measurement regime, and the method notes worth
+carrying forward.
 [`mlb_swing_decision_related_work.md`](mlb_swing_decision_related_work.md)
 reviews the public and academic work this builds on (Yee–Deshpande, EAGLE,
 SEAGER, SwRV, SOTO, Nestico, Creally, Vock & Vock).
@@ -181,7 +183,7 @@ notebooks/v1_baseline.ipynb location + count
 notebooks/v2_baseline.ipynb v1 + nitro zone, de-leaked
 
 data/                       raw CSVs and parquet cache (gitignored)
-IMPROVEMENT_PLAN.md         the roadmap and the scorecard
+FINDINGS.md                 measured results and method notes
 mlb_swing_decision_related_work.md
 ```
 
