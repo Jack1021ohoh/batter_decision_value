@@ -157,7 +157,7 @@ brew install libomp          # macOS: LightGBM needs the OpenMP runtime
 Then fetch the data (slow — a full season per call) and build the cache:
 
 ```bash
-uv run jupyter lab           # run data_fetch.ipynb, editing YEARS as needed
+uv run jupyter lab           # run notebooks/data_fetch.ipynb, editing YEARS
 uv run python -c "from src.data import build_cache; build_cache(range(2021, 2027))"
 ```
 
@@ -177,7 +177,7 @@ src/features.py             the nitro zone: prior-season hulls, membership test
 src/baselines.py            v1/v2 action models and the per-pitch scoring rules
 src/evaluate.py             the shared harness — reliability, validity, Zone% contamination
 
-data_fetch.ipynb            Statcast pulls (Stats API season bounds, overseas games excluded)
+notebooks/data_fetch.ipynb  Statcast pulls (Stats API season bounds, overseas games excluded)
 notebooks/eda.ipynb         exploratory analysis, §1–§7
 notebooks/v1_baseline.ipynb location + count
 notebooks/v2_baseline.ipynb v1 + nitro zone, de-leaked

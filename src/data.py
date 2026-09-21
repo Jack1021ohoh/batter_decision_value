@@ -1,7 +1,6 @@
 """Load, cache, clean and harmonize Statcast data for the swing-decision model.
 
-The raw pulls written by `data_fetch.ipynb` are ~400 MB per season across 119
-columns. `build_cache()` trims them to the fields this project uses and writes
+The raw pulls are ~400 MB per season across 119 columns. `build_cache()` trims them to the fields this project uses and writes
 parquet, cutting a season load from ~40s to ~2s.
 
 Everything downstream -- EDA and both modelling tracks -- should load through
@@ -118,7 +117,7 @@ PLATE_HALF_WIDTH_FT = 17 / 24  # 0.708
 
 
 # --------------------------------------------------------------------------
-# Fetch-side helpers (shared with data_fetch.ipynb)
+# Fetching (driven by notebooks/data_fetch.ipynb)
 # --------------------------------------------------------------------------
 
 def season_bounds(year: int) -> tuple[str, str]:
@@ -142,6 +141,57 @@ def game_venues(year: int) -> pd.DataFrame:
              'country': g['venue'].get('location', {}).get('country')}
             for date in r.json()['dates'] for g in date['games']]
     return pd.DataFrame(rows)
+
+
+def drop_overseas(df: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Drop rows from games played outside the US/Canada. Reports what it removed.
+
+    International series are played at neutral sites where the tracking system
+    is a temporary installation, so calibration may differ from a regular park.
+    The pitch-level export carries no venue column and these games keep an MLB
+    club as `home_team`, so neither identifies them -- the venue has to come
+    from the Stats API.
+    """
+    overseas = game_venues(year).query('country not in @KEEP_COUNTRIES')
+    if overseas.empty:
+        print('  no overseas games')
+        return df
+
+    pk = pd.to_numeric(df['game_pk'], errors='coerce').astype('Int64')
+    for venue, grp in overseas.groupby('venue'):
+        n = pk.isin(set(grp['game_pk'])).sum()
+        loc = grp.iloc[0]
+        print(f'  dropping {venue}, {loc.city} ({loc.country}) - {n:,} pitches')
+    return df[~pk.isin(set(overseas['game_pk']))]
+
+
+def fetch_season(year: int) -> Path:
+    """Pull one regular season: game_type 'R' only, overseas games removed, to CSV.
+
+    Returns the output path rather than the frame -- a season is ~700k rows by
+    ~119 columns, so holding several at once is not worth the memory.
+
+    `pybaseball` is imported here rather than at module scope: it is only needed
+    for fetching, and every analysis notebook imports this module.
+    """
+    from pybaseball import statcast
+
+    start, end = season_bounds(year)
+    today = dt.date.today().isoformat()
+    if end > today:
+        end = today
+        print(f'{year}: season still in progress - pulling through {end}; re-run after the finale')
+
+    df = statcast(start, end)
+    n_raw = len(df)
+    df = df[df['game_type'] == 'R']
+    df = drop_overseas(df, year)
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    out = DATA_DIR / f'{year}_data.csv'
+    df.to_csv(out, index=False)
+    print(f'{year}: {n_raw:,} pitches pulled -> {len(df):,} kept -> {out}\n')
+    return out
 
 
 # --------------------------------------------------------------------------

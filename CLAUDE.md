@@ -41,18 +41,20 @@ belong in `FINDINGS.md`, not there.
   `pybaseball.statcast` all tested under pandas 3.
 - The `baseball_env` kernel named in the old notebooks' metadata (Python 3.11)
   predates this; point notebooks at the uv venv instead.
-- Data is **not** in the repo. `data_fetch.ipynb` writes
+- Data is **not** in the repo. `notebooks/data_fetch.ipynb` writes
   `./data/<year>_data.csv` for every season through one `fetch_season(year)`
   helper: season date range from the MLB Stats API, `game_type == 'R'`,
-  overseas games dropped. Edit `YEARS` in the pull cell — each season is a slow
-  download. It returns the output path, not the frame, since a season is ~700k
-  rows × ~119 columns.
+  overseas games dropped. The helper itself lives in `src/data.py` so the fetch
+  and the cleaning share one definition of the season bounds and the exclusion
+  rule; the notebook is a thin driver. Edit `YEARS` in the pull cell — each
+  season is a slow download. `pybaseball` is imported lazily inside
+  `fetch_season()`, so `import src.data` stays fast for analysis.
 - **Overseas games are excluded** (temporary tracking installations): Mexico
   City, London, Seoul, Tokyo. Toronto is kept — Rogers Centre is a permanent
   park. The filter is `country not in {USA, Canada}`, resolved by a
   `game_pk` → venue lookup against the Stats API, because the pitch-level
   export has no venue column and international series use neutral sites where
-  `home_team` is still an MLB club. `drop_overseas()` in `data_fetch.ipynb`.
+  `home_team` is still an MLB club. `drop_overseas()` in `src/data.py`.
   Any CSV pulled before this filter existed (2023/2024 contain overseas games)
   is stale — re-run `fetch_season()` for those years.
 - `notebooks/eda.ipynb` is committed with outputs (~1 MB); it is re-executed
@@ -67,7 +69,8 @@ belong in `FINDINGS.md`, not there.
   374 MB, ~40s → ~0.1s per season); `load_seasons()` is the entry point and
   applies `to_middle_of_plate()` + `clean()`. Also holds `add_zone_frame()`,
   `in_rulebook_zone()`, `run_value_table()`, `drop_pitchers_batting()`, and the
-  fetch helpers shared with `data_fetch.ipynb`.
+  fetch helpers (`season_bounds`, `game_venues`, `drop_overseas`,
+  `fetch_season`).
 - `src/baselines.py` — baseline models. `fit_v1()` takes a feature list, so v2
   is the same call with `in_nitro` appended rather than a copy.
   `predict_chosen()` is v1's defining choice (score the action actually taken);
@@ -87,10 +90,12 @@ belong in `FINDINGS.md`, not there.
   `season_in_nitro` (builds each season's hulls from prior seasons only, and
   asserts it). `is_inside_hull_rowwise` is kept to verify the vectorized test.
   Also the continuous version — `hot_zone_surface`, `add_hot_zone`,
-  `season_hot_zone` (fixed two-season prior window). Measured inert: see v3.
-- `notebooks/` — `eda.ipynb` (§1–§7, ends in a decisions table),
-  `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb` (the patch). All do
-  `sys.path.insert(0, '..')`; run from the repo root.
+  `season_hot_zone` (fixed two-season prior window). **Not inert** — it is the
+  most valuable feature found, but only under a magnitude-sensitive metric; a
+  sign-based one cannot register it. See FINDINGS.md.
+- `notebooks/` — `data_fetch.ipynb` (the pulls), `eda.ipynb` (§1–§7, ends in a
+  decisions table), `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb`
+  (the patch). All do `sys.path.insert(0, '..')`.
 - Key EDA results now in `FINDINGS.md`: ABS band is exactly
   27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
   suffices); counterfactual support fails only on 3-0 off the plate; 41% of
