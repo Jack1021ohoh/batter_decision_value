@@ -48,7 +48,7 @@ these rows are not a like-for-like ladder.
 | v2 (2022–26) | 0.786 | 0.530 | 0.033 | 0.105 |
 
 **With the metric held fixed, so only the features vary.** This is the
-comparison that supports any claim about the patch.
+comparison that supports any claim about what the added features buy.
 
 | | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
 |---|---|---|---|---|
@@ -57,8 +57,9 @@ comparison that supports any claim about the patch.
 | + full pitch frame | 0.815 | 0.583 | 0.269 | 0.070 |
 | **+ hot-zone surface** | **0.835** | **0.613** | **0.192** | **0.110** |
 
-The patch **doubles** next-season predictive validity, cuts pitch-mix
-contamination by about 30%, and raises reliability, with construct validity —
+Going from location-and-count to the full model **doubles** next-season
+predictive validity, cuts pitch-mix contamination by about 30%, and raises
+reliability, with construct validity —
 does the metric punish chasing *and* reward attacking hittable pitches — flat
 at −0.884 / +0.643 against −0.894 / +0.626.
 
@@ -92,7 +93,7 @@ SEAGER, SwRV, SOTO, Nestico, Creally, Vock & Vock).
 ## What the EDA established
 
 Full detail in `notebooks/eda.ipynb`; these are the results that shape the
-rebuild.
+models.
 
 **The 2026 ABS season is usable, after harmonization.** Statcast moved
 `plate_x`/`plate_z` from front-of-plate to middle-of-plate in 2026 and switched
