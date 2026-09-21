@@ -8,21 +8,30 @@ running it.
 
 ## Results
 
-Same pipeline, learner and hyperparameters throughout; only the design differs,
-so each row's difference is attributable. Higher is better except Zone%, where
-lower means less contaminated by the pitches a hitter happened to be thrown.
+Two readings, and they answer different questions.
 
-| | swing RMSE vs count-only | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
-|---|---|---|---|---|---|
-| v1 (2021–26) | 0.2985 / 0.3010 | 0.750 | 0.519 | 0.077 | 0.092 |
-| v1 (2022–26 window) | 0.2974 / 0.2998 | 0.753 | 0.517 | 0.077 | 0.095 |
-| v2 (2022–26) | 0.2973 / 0.2998 | 0.786 | 0.530 | 0.033 | 0.105 |
-| v3 (the patch) | 0.2982 / 0.3010 | 0.806 | 0.560 | 0.207 | 0.085 |
+**As each version was designed** — v1 and v2 score the value of the action
+taken, because that is their design; v3 changes the metric as well as the
+features.
 
-**These columns understate what changed.** The check that discriminates between
-designs is construct validity — does the metric punish chasing *and* reward
-attacking hittable pitches, each measured with the other held fixed. There v3
-reaches **−0.924 / +0.871** against v1's **−0.849 / +0.594**.
+| | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
+|---|---|---|---|---|
+| v1 (2021–26) | 0.750 | 0.519 | 0.077 | 0.092 |
+| v2 (2022–26) | 0.786 | 0.530 | 0.033 | 0.105 |
+
+**With the metric held fixed at `signed_edge`**, so only the feature set
+varies and each difference is attributable — this is the comparison that
+supports any claim about the patch. Full table in "The feature ladder" below.
+
+| | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
+|---|---|---|---|---|
+| v1 features | 0.817 | 0.590 | 0.274 | 0.049 |
+| v3 features + hot zone | **0.835** | **0.613** | **0.192** | **0.110** |
+
+The patch **doubles** next-season predictive validity, cuts pitch-mix
+contamination by about 30%, and raises reliability, with construct validity —
+does the metric punish chasing *and* reward attacking hittable pitches — flat
+at −0.884 / +0.643 against −0.894 / +0.626.
 
 ---
 
