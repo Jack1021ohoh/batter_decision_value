@@ -17,24 +17,22 @@ regret  = max(Q_swing, Q_take) − Q_chosen
 A hitter can decide correctly and make an out, or decide badly and get a hit.
 This framework separates the two.
 
-## Status
+## What is here
 
-**Rebuilding.** Three earlier iterations (v1–v3) are retired; see
-[Why v3 was retired](#why-v3-was-retired). The current work is:
-
-| Done | |
+| | |
 |---|---|
 | Data | 2021–2026 regular seasons, 4.24M pitches, overseas neutral-site games excluded |
-| Loader | `src/data.py` — caching, cleaning, 2026 harmonization, derived features |
-| EDA | `notebooks/eda.ipynb` — seven sections, each ending in a decision |
-| Harness | `src/evaluate.py` — reliability, validity and contamination checks, shared by every variant |
-| v1 | `notebooks/v1_baseline.ipynb` — location + count, re-run on the corrected pipeline |
-| v2 | `notebooks/v2_baseline.ipynb` — v1 + nitro zone, leak and silent-deletion bug fixed |
-| **v3** | `notebooks/v3.ipynb` — the patch: new metric, pitch-frame features, take-model check, personalization test |
+| `src/data.py` | loading, caching, cleaning, 2026 harmonization, derived features |
+| `src/evaluate.py` | the shared harness — reliability, validity and contamination checks |
+| `notebooks/eda.ipynb` | exploratory analysis, seven sections, each ending in a decision |
+| `notebooks/v1_baseline.ipynb` | location and count — the simplest design worth measuring, and the floor |
+| `notebooks/v2_baseline.ipynb` | v1 plus a binary hot-zone flag |
+| **`notebooks/v3.ipynb`** | the current model: batter-frame features, a continuous hot-zone surface, and the metric comparison behind both |
 
-| Next | |
-|---|---|
-| Track B | event-decomposition redesign — though v3 puts two of its premises in doubt |
+Next is an event-decomposition redesign — modelling whiff, foul and in-play
+separately rather than regressing run value directly. v3 supports the premise:
+whiff probability predicts at AUC 0.769 while the run value of a swing is
+mostly irreducible.
 
 ### Where the baselines landed
 
@@ -91,30 +89,6 @@ carrying forward.
 reviews the public and academic work this builds on (Yee–Deshpande, EAGLE,
 SEAGER, SwRV, SOTO, Nestico, Creally, Vock & Vock).
 
-## Why v3 was retired
-
-Year-over-year stability of the player metric fell across iterations — 0.57,
-then 0.34, then 0.16 — and the causes turned out to be independent:
-
-- **The player metric dropped swings entirely.** v3 scored the share of a
-  hitter's *takes* the model judged hittable. Chases never entered it, and a
-  hard threshold at zero counted a miss of 0.001 runs the same as one of 0.08.
-- **The per-pitch score double-counted the strike probability.**
-  `Q_swing·P(strike) − Q_take·(1−P(strike))` reweights a take value that
-  already contains `P(ball)`.
-- **The nitro zone leaked its own outcome.** The convex hull was drawn through
-  the top 5% of *that same season's* exit velocities, so `in_nitro` partly
-  encoded the label — and on held-out data the hull used the future. Rebuilding
-  it from prior seasons only shows the leak was the whole problem: the
-  de-leaked hull slightly *improves* on v1.
-- **Run values were refit per season**, so each year's targets came from its
-  own run environment.
-- **`field_error` was mapped to `field_out`**, assigning −0.250 runs to an
-  event worth +0.461.
-
-The notebooks are not in the working tree. They are in git history at
-[`fa48b14`](../../commit/fa48b14) (`git show fa48b14:batter_decision_value_v3.ipynb`).
-
 ## What the EDA established
 
 Full detail in `notebooks/eda.ipynb`; these are the results that shape the
@@ -154,11 +128,13 @@ with a two-season prior. Hitter surfaces are nearly three-dimensional (89% of
 between-hitter variance in three components), which is why pooling recovers so
 much.
 
-A caveat the v2 rebuild added: a hull is a poor estimator of that *signal*, but
-that does not mean it damages the *metric*. Rebuilt without the leak it edges
-v1 on every measure. The hull's real limitation is different — 91% of the
-pitches it flags are in the strike zone, so it is mostly acting as a coarse
-location feature rather than as personalization.
+A binary flag over the same signal is a poor estimator of it but does not
+damage the metric — it simply contributes little, because 91% of the pitches it
+marks are in the strike zone, so it acts as a coarse location feature rather
+than as personalization. The continuous surface is what makes personalization
+pay, and only under a metric that keeps the run-value magnitude: a sign-based
+score cannot see it, since the feature flips the recommended action on just
+1.7% of pitches.
 
 ## Getting started
 
