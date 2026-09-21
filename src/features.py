@@ -187,6 +187,13 @@ def hot_zone_surface(bip: pd.DataFrame, bandwidth: float = HOT_BANDWIDTH,
     return per_batter, league
 
 
+#: Grid the surface is evaluated on before lookup, in the batter frame. The
+#: surface varies on the scale of the 0.35 ft bandwidth, more than three times
+#: the spacing, so discretising costs nothing measurable.
+GRID_X = np.arange(-1.6, 1.65, 0.10)
+GRID_Z = np.arange(-0.6, 2.05, 0.10)
+
+
 def add_hot_zone(df: pd.DataFrame, surface: tuple[dict, float],
                  bandwidth: float = HOT_BANDWIDTH, shrinkage: float = HOT_SHRINKAGE,
                  col: str = 'hot_zone') -> pd.DataFrame:
@@ -195,24 +202,48 @@ def add_hot_zone(df: pd.DataFrame, surface: tuple[dict, float],
     Continuous, unlike the hull: a pitch just outside a hitter's best region is
     worth slightly less rather than nothing. Hitters with no history get the
     league mean, so they are neither dropped nor marked False.
+
+    Evaluated on a fixed grid and then looked up per pitch. Computing the kernel
+    directly at every pitch location costs one distance per (pitch, ball in
+    play) pair; on the grid it costs one per (grid node, ball in play) and the
+    per-pitch step becomes an array index. The surface varies on the scale of
+    the bandwidth, which is more than three times the grid spacing, so nothing
+    is lost.
     """
     per_batter, league = surface
     df = df.copy()
     out = np.full(len(df), league)
-    batters = df['batter'].to_numpy()
     query = df[['plate_x_bat', 'plate_z_norm']].to_numpy()
     tracked = ~np.isnan(query).any(axis=1)
     h2 = 2 * bandwidth * bandwidth
 
+    gx, gz = np.meshgrid(GRID_X, GRID_Z, indexing='ij')
+    nodes = np.column_stack([gx.ravel(), gz.ravel()])
+
+    # Nearest grid node, not the one to the left: rounding rather than
+    # searchsorted avoids a systematic half-cell bias in the looked-up value.
+    ix = np.clip(np.rint((query[:, 0] - GRID_X[0]) / 0.10).astype(int), 0, len(GRID_X) - 1)
+    iz = np.clip(np.rint((query[:, 1] - GRID_Z[0]) / 0.10).astype(int), 0, len(GRID_Z) - 1)
+    flat = ix * len(GRID_Z) + iz
+
+    # Index rows by batter once. Scanning `batters == batter` inside the loop
+    # costs one full pass per hitter -- with ~650 hitters over 3.5M rows that
+    # dominates everything else the function does.
+    row_index = df.reset_index(drop=True).groupby('batter', observed=True).indices
+
     for batter, (pts, vals) in per_batter.items():
-        mask = (batters == batter) & tracked
-        if not mask.any():
+        rows = row_index.get(batter)
+        if rows is None:
             continue
-        d2 = ((query[mask][:, None, :] - pts[None, :, :]) ** 2).sum(-1)
+        rows = rows[tracked[rows]]
+        if not len(rows):
+            continue
+        d2 = ((nodes[:, None, :] - pts[None, :, :]) ** 2).sum(-1)
         w = np.exp(-d2 / h2)
         n_eff = w.sum(1)
         raw = (w * vals).sum(1) / np.maximum(n_eff, 1e-9)
-        out[mask] = (n_eff * raw + shrinkage * league) / (n_eff + shrinkage)
+        shrunk = (n_eff * raw + shrinkage * league) / (n_eff + shrinkage)
+        out[rows] = shrunk[flat[rows]]
 
     df[col] = out
     return df
