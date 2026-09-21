@@ -117,12 +117,17 @@ fixed. `signed_edge` is chosen despite it, not because it escapes it.
 Only the feature set varies; pipeline, learner, seasons (2022–26) and metric
 all held constant.
 
-| features | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
+Each row is a complete feature set, not an increment on the row above: the
+last two drop the binary hull, because it and the continuous surface estimate
+the same thing — a hitter's hot zone — so carrying both would be redundant
+rather than cumulative.
+
+| feature set | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
 |---|---|---|---|---|---|---|
-| location + count | −0.894 | 0.626 | 0.817 | 0.590 | 0.274 | 0.049 |
-| + nitro hull | −0.881 | 0.602 | 0.816 | 0.587 | 0.250 | 0.056 |
-| + full pitch frame | **−0.909** | **0.685** | 0.815 | 0.583 | 0.269 | 0.070 |
-| + hot-zone surface | −0.884 | 0.643 | **0.835** | **0.613** | **0.192** | **0.110** |
+| location, count | −0.894 | 0.626 | 0.817 | 0.590 | 0.274 | 0.049 |
+| location, count, hull | −0.881 | 0.602 | 0.816 | 0.587 | 0.250 | 0.056 |
+| batter frame, handedness, pitch chars | **−0.909** | **0.685** | 0.815 | 0.583 | 0.269 | 0.070 |
+| … plus hot-zone surface | −0.884 | 0.643 | **0.835** | **0.613** | **0.192** | **0.110** |
 
 The complete patch **doubles predictive validity** (0.049 → 0.110), cuts
 contamination ~30%, raises reliability, and leaves construct validity flat. The

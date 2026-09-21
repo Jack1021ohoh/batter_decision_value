@@ -50,12 +50,17 @@ these rows are not a like-for-like ladder.
 **With the metric held fixed, so only the features vary.** This is the
 comparison that supports any claim about what the added features buy.
 
-| | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
+Each row is a complete feature set, not an increment on the row above: the
+last two drop the binary hull, because it and the continuous surface estimate
+the same thing — a hitter's hot zone — so carrying both would be redundant
+rather than cumulative.
+
+| feature set | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
 |---|---|---|---|---|
-| v1 features | 0.817 | 0.590 | 0.274 | 0.049 |
-| + nitro hull | 0.816 | 0.587 | 0.250 | 0.056 |
-| + full pitch frame | 0.815 | 0.583 | 0.269 | 0.070 |
-| **+ hot-zone surface** | **0.835** | **0.613** | **0.192** | **0.110** |
+| location, count | 0.817 | 0.590 | 0.274 | 0.049 |
+| location, count, hull | 0.816 | 0.587 | 0.250 | 0.056 |
+| batter frame, handedness, pitch chars | 0.815 | 0.583 | 0.269 | 0.070 |
+| **… plus hot-zone surface** | **0.835** | **0.613** | **0.192** | **0.110** |
 
 Going from location-and-count to the full model **doubles** next-season
 predictive validity, cuts pitch-mix contamination by about 30%, and raises
