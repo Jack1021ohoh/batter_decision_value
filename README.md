@@ -38,22 +38,31 @@ This framework separates the two.
 
 ### Where the baselines landed
 
-Each row is the same pipeline, learner and hyperparameters; only the design
-differs. Higher is better except the Zone% column, where lower means less
-contaminated by the pitches a hitter happened to see.
+Two readings, answering different questions.
 
-| | swing RMSE vs count-only | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
-|---|---|---|---|---|---|
-| v1 (2021–26) | 0.2985 / 0.3010 | 0.750 | 0.519 | 0.077 | 0.092 |
-| v1 (2022–26 window) | 0.2974 / 0.2998 | 0.753 | 0.517 | 0.077 | 0.095 |
-| **v2** (2022–26) | 0.2973 / 0.2998 | 0.786 | 0.530 | 0.033 | 0.105 |
-| **v3** (the patch) | 0.2982 / 0.3010 | 0.835 | 0.613 | 0.192 | **0.110** |
+**Each version as designed.** v1 and v2 score the value of the action taken,
+because that is their design; v3 changes the metric as well as the features, so
+these rows are not a like-for-like ladder.
 
-With the metric held fixed so only features vary, the patch **doubles**
-next-season predictive validity (0.049 → 0.110), cuts pitch-mix contamination
-by ~30% (0.274 → 0.192), and raises reliability, with construct validity —
+| | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
+|---|---|---|---|---|
+| v1 (2021–26) | 0.750 | 0.519 | 0.077 | 0.092 |
+| v2 (2022–26) | 0.786 | 0.530 | 0.033 | 0.105 |
+
+**With the metric held fixed, so only the features vary.** This is the
+comparison that supports any claim about the patch.
+
+| | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
+|---|---|---|---|---|
+| v1 features | 0.817 | 0.590 | 0.274 | 0.049 |
+| + nitro hull | 0.816 | 0.587 | 0.250 | 0.056 |
+| + full pitch frame | 0.815 | 0.583 | 0.269 | 0.070 |
+| **+ hot-zone surface** | **0.835** | **0.613** | **0.192** | **0.110** |
+
+The patch **doubles** next-season predictive validity, cuts pitch-mix
+contamination by about 30%, and raises reliability, with construct validity —
 does the metric punish chasing *and* reward attacking hittable pitches — flat
-at −0.884 / +0.643.
+at −0.884 / +0.643 against −0.894 / +0.626.
 
 Most of that comes from personalization. A hitter's hot zone differs from
 another's at the *same location* by 1.78 mph of expected exit velocity, about
@@ -63,16 +72,17 @@ best region sits. The estimator matters enormously: a convex hull over the top
 kernel-smoothed shrunk surface at r ≈ 0.68.
 
 The metric keeps the run-value magnitude, as every published metric does. That
-carries a known pitch-mix contamination that the field shares and this project
-did not solve — four attempts are documented in [`FINDINGS.md`](FINDINGS.md).
+carries a known pitch-mix contamination the field shares and this project did
+not solve — four attempts are documented in [`FINDINGS.md`](FINDINGS.md).
 
-Two things to read off this. The baselines are **reliable but barely useful** —
-a partial correlation of ~0.10 against next-season production means the metric
-adds little to simply knowing how a hitter already hit, and that is the number
-the rebuild has to move. And the **swing model beats a count-only lookup by
-under 1%**, against ~44% for the take model: location and count say almost
-nothing about what happens when a hitter swings, which is what Track B's event
-decomposition is aimed at.
+**A caution about the swing model.** It beats a count-only lookup by under 1%
+on pitch-level RMSE, which reads as though nothing observable before the pitch
+predicts what follows a swing. That reading is wrong. Only **1.9%** of the
+variance in swing run value is learnable at all — the rest is the difference
+between a home run and a groundout on identical pitches — and of that learnable
+part the model recovers 90.6% with location and count, 94.5% with the full
+pitch frame. RMSE is simply the wrong instrument for a conditional-mean
+estimator.
 
 [`FINDINGS.md`](FINDINGS.md) collects what the data established — results, the
 metric analysis, the 2026 ABS measurement regime, and the method notes worth
