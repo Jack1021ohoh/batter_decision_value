@@ -36,7 +36,18 @@ V1_ROUNDS = 200
 #: Hitter-specific features. They describe how a hitter makes contact, which
 #: cannot change what an umpire calls, so they belong on the swing side only.
 #: `fit_v1` keeps them out of the take model unless told otherwise.
-SWING_ONLY_FEATURES = {'in_nitro', 'hot_zone'}
+SWING_ONLY_FEATURES = {'in_nitro', 'hot_zone', 'prior_whiff', 'prior_foul'}
+
+
+#: The learner protocol shared by every Track B sub-model, in both twins.
+#: v1's fixed 200 rounds at learning rate 0.01 stop short of convergence for
+#: the swing model, so rounds are set by early stopping instead, on a slice of
+#: training games held back from the fit.
+LEARNER = {'tree_method': 'hist', 'max_depth': 7, 'learning_rate': 0.05,
+           'random_state': SEED}
+MAX_ROUNDS = 3000
+PATIENCE = 50
+STOP_FRACTION = 0.10
 
 
 @dataclass
@@ -46,6 +57,7 @@ class ActionModels:
     swing: xgb.Booster
     take_features: list[str]
     swing_features: list[str]
+    rounds: dict | None = None               # early-stopped round counts, if any
 
     def features_for(self, action: str) -> list[str]:
         return self.take_features if action == 'take' else self.swing_features
@@ -95,6 +107,62 @@ def fit_v1(train: pd.DataFrame, target: str = 'target',
         take_features=take_features,
         swing_features=swing_features,
     )
+
+
+def stopping_mask(frame: pd.DataFrame, fraction: float = STOP_FRACTION,
+                  seed: int = SEED) -> np.ndarray:
+    """Rows belonging to a random `fraction` of games, the early-stopping set.
+
+    Whole games are held back, not rows, so pitches from one plate appearance
+    never sit on both sides of the split. Seeded, and a function of the game
+    ids alone, so two fits on the same rows stop on the same games.
+    """
+    games = np.sort(frame['game_pk'].unique())
+    rng = np.random.default_rng(seed)
+    held = rng.choice(games, size=max(1, int(round(len(games) * fraction))), replace=False)
+    return frame['game_pk'].isin(held).to_numpy()
+
+
+def train_early_stopped(frame: pd.DataFrame, features: list[str], label,
+                        params: dict) -> xgb.Booster:
+    """Fit under `LEARNER`, stopping on held-back games; keep the best round only."""
+    label = np.asarray(label)
+    stop = stopping_mask(frame)
+    booster = xgb.train(
+        {**LEARNER, **params},
+        _dmatrix(frame[~stop], features, label[~stop]), MAX_ROUNDS,
+        evals=[(_dmatrix(frame[stop], features, label[stop]), 'stop')],
+        early_stopping_rounds=PATIENCE, verbose_eval=False)
+    return booster[: booster.best_iteration + 1]
+
+
+REGRESSION = {'objective': 'reg:squarederror', 'eval_metric': 'rmse'}
+
+
+def fit_take(train: pd.DataFrame, features: list[str], target: str = 'target') -> xgb.Booster:
+    """The take model under `LEARNER`. Both Track B twins call this, so they
+    share one `Q_take`."""
+    take = train[~train['swing']]
+    return train_early_stopped(take, features, take[target], REGRESSION)
+
+
+def fit_direct(train: pd.DataFrame, features: list[str], target: str = 'target',
+               swing_only: bool = True, **_) -> ActionModels:
+    """The direct twin: v1's two-model design, under `LEARNER`.
+
+    Same routing as `fit_v1` -- hitter features to the swing model only unless
+    `swing_only=False` -- but rounds set by early stopping rather than fixed.
+    """
+    features = list(features)
+    take_features = ([f for f in features if f not in SWING_ONLY_FEATURES]
+                     if swing_only else features)
+    take = fit_take(train, take_features, target)
+    sw = train[train['swing']]
+    swing = train_early_stopped(sw, features, sw[target], REGRESSION)
+    return ActionModels(take=take, swing=swing, take_features=take_features,
+                        swing_features=features,
+                        rounds={'take': take.num_boosted_rounds(),
+                                'swing': swing.num_boosted_rounds()})
 
 
 def predict_chosen(df: pd.DataFrame, models: ActionModels,

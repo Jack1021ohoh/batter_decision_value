@@ -25,6 +25,7 @@ FINDINGS.md compares like with like. Three of the choices here are not obvious:
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -73,7 +74,7 @@ class FoldRun:
 
 
 def run_folds(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
-              in_sample: bool = False, **fit_kwargs) -> FoldRun:
+              in_sample: bool = False, fit=fit_v1, **fit_kwargs) -> FoldRun:
     """Fit a variant on each fold and score only the season it held out.
 
     Per fold, everything that is learned is learned from the training seasons:
@@ -85,8 +86,23 @@ def run_folds(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
     `decision.SCORES`. With `in_sample=True` the last fold's model also scores
     its own training seasons, kept apart in `.in_sample` so it can be reported
     beside the held-out figures but never averaged into them.
+
+    `fit` is the model-fitting function, `fit_v1` by default. Any function
+    returning an object with `.predict(df, action)` works; if it takes an `rv`
+    argument it receives the fold's run-value table, and if the fitted object
+    has `.components(df)` those columns are attached to the scored rows.
     """
     need = [f for f in features if f != 'count']
+    wants_rv = 'rv' in inspect.signature(fit).parameters
+
+    def scored(frame, model, count_only):
+        out = DEC.add_scores(predict_both(predict_chosen(frame, model), model))
+        idx = pd.MultiIndex.from_arrays([out['swing'], out['count']])
+        out['count_only'] = count_only.reindex(idx).to_numpy()
+        if hasattr(model, 'components'):
+            out = out.join(model.components(frame))
+        return out
+
     frames, models = [], {}
     for train_seasons, valid in folds:
         train_seasons = tuple(train_seasons)
@@ -99,16 +115,10 @@ def run_folds(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
         part = D.apply_run_value(part, rv, name='target').dropna(subset=['target'])
         train = part[part['season'].isin(train_seasons)]
 
-        model = fit_v1(train, features=features, **fit_kwargs)
+        model = fit(train, features=features, **({'rv': rv} if wants_rv else {}), **fit_kwargs)
         count_only = train.groupby(['swing', 'count'], observed=True)['target'].mean()
 
-        def score(frame):
-            out = DEC.add_scores(predict_both(predict_chosen(frame, model), model))
-            idx = pd.MultiIndex.from_arrays([out['swing'], out['count']])
-            out['count_only'] = count_only.reindex(idx).to_numpy()
-            return out
-
-        held = score(part[part['season'] == valid])
+        held = scored(part[part['season'] == valid], model, count_only)
         held['fold'] = valid
         frames.append(held)
         models[valid] = model
@@ -119,12 +129,8 @@ def run_folds(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
         rv = D.run_value_table(df, train_seasons)
         part = df[df['season'].isin(train_seasons)].dropna(subset=need)
         part = D.apply_run_value(part, rv, name='target').dropna(subset=['target'])
-        model = models[valid]
         count_only = part.groupby(['swing', 'count'], observed=True)['target'].mean()
-        ins = DEC.add_scores(predict_both(predict_chosen(part, model), model))
-        ins['count_only'] = count_only.reindex(
-            pd.MultiIndex.from_arrays([ins['swing'], ins['count']])).to_numpy()
-        run.in_sample = ins
+        run.in_sample = scored(part, models[valid], count_only)
     return run
 
 
@@ -157,8 +163,38 @@ BIN_Z = np.linspace(-0.4, 1.6, 13)
 MIN_BIN = 200
 
 
+#: Game-resampling draws for the calibration-slope intervals.
+BOOT_DRAWS = 200
+
+
+def _slope_interval(s: pd.DataFrame, bin_key: np.ndarray, obs: str, pred: str,
+                    min_n: int, draws: int = BOOT_DRAWS, seed: int = SEED) -> tuple[float, float]:
+    """95% interval for the binned calibration slope, resampling whole games.
+
+    Games, not pitches, are the resampling unit, since pitches within a game
+    share a park, a starter and conditions. Per-(game, bin) sums are built once;
+    a draw is then a vector of game weights, so each resample is a matrix
+    product rather than a regrouping of every pitch.
+    """
+    game = pd.factorize(s['game_pk'])[0]
+    ng, nb = game.max() + 1, bin_key.max() + 1
+
+    def sums(v):
+        m = np.zeros((ng, nb)); np.add.at(m, (game, bin_key), v); return m
+
+    N, O, P = sums(np.ones(len(s))), sums(s[obs].to_numpy()), sums(s[pred].to_numpy())
+    rng = np.random.default_rng(seed)
+    out = []
+    for w in rng.multinomial(ng, np.full(ng, 1 / ng), size=draws):
+        n, o, p = w @ N, w @ O, w @ P
+        ok = n >= min_n
+        out.append(np.polyfit(p[ok] / n[ok], o[ok] / n[ok], 1, w=np.sqrt(n[ok]))[0])
+    lo, hi = np.percentile(out, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
 def bin_calibration(held: pd.DataFrame, action: str = 'swing',
-                    min_n: int = MIN_BIN) -> pd.DataFrame:
+                    min_n: int = MIN_BIN, ci: bool = False) -> pd.DataFrame:
     """Score an action model on the conditional means it estimates, per held-out season.
 
     Pitches are binned by (batter-frame location x count). In each bin with at
@@ -177,6 +213,12 @@ def bin_calibration(held: pd.DataFrame, action: str = 'swing',
     * `slope` -- observed bin mean regressed on predicted, weighted by n. A
       model can correlate well with the bin means and still be systematically
       over- or under-confident; 1 is calibrated, below 1 overstates contrasts.
+      With `ci=True`, `slope_lo`/`slope_hi` give a 95% interval from resampling
+      games.
+
+    It groups by location and count only, so it cannot credit a feature that
+    varies within a bin (pitch characteristics, hitter priors).
+    `prediction_calibration` is the check that covers the whole model.
     """
     swung = action == 'swing'
     col = 'q_swing' if swung else 'q_take'
@@ -197,11 +239,77 @@ def bin_calibration(held: pd.DataFrame, action: str = 'swing',
         mse, mse_base = wms(agg['pred'] - agg['obs']), wms(agg['base'] - agg['obs'])
         noise = float(np.average(agg['var'] / agg['n'], weights=w))
         slope = float(np.polyfit(agg['pred'], agg['obs'], 1, w=np.sqrt(w))[0])
-        rows.append({'season': season, 'bins': len(agg), 'pitches': int(w.sum()),
-                     'err': np.sqrt(mse), 'err_count_only': np.sqrt(mse_base),
-                     'noise': np.sqrt(noise),
-                     'signal_recovered': 1 - (mse - noise) / (mse_base - noise),
-                     'slope': slope})
+        row = {'season': season, 'bins': len(agg), 'pitches': int(w.sum()),
+               'err': np.sqrt(mse), 'err_count_only': np.sqrt(mse_base),
+               'noise': np.sqrt(noise),
+               'signal_recovered': 1 - (mse - noise) / (mse_base - noise),
+               'slope': slope}
+        if ci:
+            key = s.groupby(['cx', 'cz', 'count'], observed=True).ngroup().to_numpy()
+            row['slope_lo'], row['slope_hi'] = _slope_interval(s, key, 'target', col, min_n)
+        rows.append(row)
+    return pd.DataFrame(rows).set_index('season')
+
+
+def prediction_calibration(held: pd.DataFrame, action: str = 'swing', bins: int = 20,
+                           ci: bool = True) -> pd.DataFrame:
+    """The standard calibration check: group by *predicted* value, per held-out season.
+
+    Pitches land in the same bin because the model rates them alike, for
+    whatever reason -- location, count, pitch type or hitter -- so unlike
+    `bin_calibration` it tests the whole model. `slope` regresses the observed
+    mean target on the mean prediction across the `bins` quantile bins,
+    weighted by n: 1 is calibrated, above 1 means the predictions are too
+    compressed, below 1 too spread. With `ci`, a 95% interval from resampling
+    games.
+    """
+    swung = action == 'swing'
+    col = 'q_swing' if swung else 'q_take'
+    g = held[held['swing'] == swung]
+    rows = []
+    for season, s in g.groupby('season', observed=True):
+        key = pd.qcut(s[col].rank(method='first'), bins, labels=False).to_numpy()
+        agg = s.groupby(key).agg(obs=('target', 'mean'), pred=(col, 'mean'), n=('target', 'size'))
+        slope, icpt = np.polyfit(agg['pred'], agg['obs'], 1, w=np.sqrt(agg['n']))
+        row = {'season': season, 'bins': len(agg), 'pitches': int(agg['n'].sum()),
+               'pred_range': float(agg['pred'].max() - agg['pred'].min()),
+               'obs_range': float(agg['obs'].max() - agg['obs'].min()),
+               'slope': float(slope), 'intercept': float(icpt)}
+        if ci:
+            row['slope_lo'], row['slope_hi'] = _slope_interval(s, key, 'target', col, min_n=1)
+        rows.append(row)
+    return pd.DataFrame(rows).set_index('season')
+
+
+def outcome_diagnostics(held: pd.DataFrame, bins: int = 20) -> pd.DataFrame:
+    """How well the decomposed classifier predicts what a swing produces, per held-out season.
+
+    Needs `p_whiff`/`p_foul`/`p_bip` from `DecomposedModels.components`. Log
+    loss is against each season's own class frequencies, a base rate slightly
+    better informed than the model's training rates, so the comparison is
+    conservative. Per-class slopes bin swings by predicted probability and
+    regress the observed rate on it; 1 is calibrated.
+    """
+    from sklearn.metrics import log_loss, roc_auc_score
+    from .decomposition import SWING_CLASSES, swing_class
+
+    sw = held[held['swing']]
+    rows = []
+    for season, s in sw.groupby('season', observed=True):
+        y = swing_class(s['outcome'])
+        p = s[['p_whiff', 'p_foul', 'p_bip']].to_numpy()
+        base = np.bincount(y, minlength=3) / len(y)
+        row = {'season': season, 'swings': len(s),
+               'logloss': log_loss(y, p, labels=[0, 1, 2]),
+               'logloss_base_rate': log_loss(y, np.tile(base, (len(y), 1)), labels=[0, 1, 2]),
+               'whiff_auc': roc_auc_score(y == 0, p[:, 0])}
+        row['improvement_%'] = (1 - row['logloss'] / row['logloss_base_rate']) * 100
+        for k, name in enumerate(SWING_CLASSES):
+            key = pd.qcut(pd.Series(p[:, k]).rank(method='first'), bins, labels=False).to_numpy()
+            obs = np.bincount(key, weights=(y == k)) / np.bincount(key)
+            pred = np.bincount(key, weights=p[:, k]) / np.bincount(key)
+            row[f'{name}_slope'] = float(np.polyfit(pred, obs, 1)[0])
+        rows.append(row)
     return pd.DataFrame(rows).set_index('season')
 
 

@@ -1,6 +1,6 @@
 """Hitter-specific features.
 
-Currently the nitro zone: the convex hull of the locations where a hitter
+The nitro zone: the convex hull of the locations where a hitter
 produced his hardest-hit balls in play. v2 introduced it and it is reproduced
 here as designed -- binary, convex hull, top-5% exit velocity, 60 balls in play
 minimum -- with two defects corrected.
@@ -15,10 +15,15 @@ without a hull disappeared from the data entirely rather than scoring
 `in_nitro = False`. With a prior-season hull only 79-88% of qualified hitters
 have one, so that deletion would be large and non-random.
 
-Better estimators of the same signal exist -- EDA §6 measured a kernel-smoothed,
-shrunk surface at year-over-year r ~ 0.68 against ~ 0.30 for raw bins -- but
-those are a change to v2's design rather than a correction of it, and belong to
-the work that follows.
+**Location surfaces** are the better estimator. A kernel-smoothed surface,
+shrunk toward the league by effective sample size, reproduces itself year over
+year at r ~ 0.68 against ~ 0.30 for raw bins (EDA section 6). `season_surface`
+builds one for any per-row quantity from a fixed prior window:
+
+* `season_hot_zone` -- expected exit velocity on balls in play (v3's damage
+  prior);
+* `season_contact_priors` -- whiff and foul rates per swing (Track B's contact
+  priors).
 """
 
 from __future__ import annotations
@@ -174,27 +179,35 @@ HOT_SHRINKAGE = 60.0
 PRIOR_WINDOW = 2
 
 
-def hot_zone_surface(bip: pd.DataFrame, bandwidth: float = HOT_BANDWIDTH,
-                     shrinkage: float = HOT_SHRINKAGE) -> tuple[dict, float]:
-    """Per-batter expected exit velocity as a function of location.
+def value_surface(rows: pd.DataFrame, value_cols: list[str],
+                  min_rows: int = 20) -> tuple[dict, np.ndarray]:
+    """Per-batter points and values for a location surface of any per-row quantity.
 
-    Returns `({batter: (points, values)}, league_mean)`, enough to evaluate the
-    shrunk surface at any location later.
+    Returns `({batter: (points, values)}, league_means)`, `values` with one
+    column per entry of `value_cols`. A batter with fewer than `min_rows`
+    usable rows gets no surface and later takes the league value.
+    """
+    league = np.array([float(rows[c].mean()) for c in value_cols])
+    per_batter = {}
+    for batter, g in rows.groupby('batter', observed=True):
+        pts = g[['plate_x_bat', 'plate_z_norm']].to_numpy()
+        vals = g[value_cols].to_numpy(dtype=float)
+        ok = ~np.isnan(pts).any(axis=1) & ~np.isnan(vals).any(axis=1)
+        if ok.sum() >= min_rows:
+            per_batter[batter] = (pts[ok], vals[ok])
+    return per_batter, league
+
+
+def hot_zone_surface(bip: pd.DataFrame, bandwidth: float = HOT_BANDWIDTH,
+                     shrinkage: float = HOT_SHRINKAGE) -> tuple[dict, np.ndarray]:
+    """Per-batter expected exit velocity as a function of location.
 
     This replaces the convex hull. The hull thresholds at the top 5% of one
     sample and so discards 95% of the balls in play, leaving a polygon defined
     by a handful of points; measured year over year a hull-class estimator
     reproduces itself at r ~ 0.30 against ~ 0.68 for this one.
     """
-    league = float(bip['launch_speed'].mean())
-    per_batter = {}
-    for batter, g in bip.groupby('batter', observed=True):
-        pts = g[['plate_x_bat', 'plate_z_norm']].to_numpy()
-        vals = g['launch_speed'].to_numpy()
-        ok = ~np.isnan(pts).any(axis=1) & ~np.isnan(vals)
-        if ok.sum() >= 20:
-            per_batter[batter] = (pts[ok], vals[ok])
-    return per_batter, league
+    return value_surface(bip, ['launch_speed'])
 
 
 #: Grid the surface is evaluated on before lookup, in the batter frame. The
@@ -202,33 +215,49 @@ def hot_zone_surface(bip: pd.DataFrame, bandwidth: float = HOT_BANDWIDTH,
 #: the spacing, so discretising costs nothing measurable.
 GRID_X = np.arange(-1.6, 1.65, 0.10)
 GRID_Z = np.arange(-0.6, 2.05, 0.10)
+_GX, _GZ = np.meshgrid(GRID_X, GRID_Z, indexing='ij')
+GRID_NODES = np.column_stack([_GX.ravel(), _GZ.ravel()])
 
 
-def add_hot_zone(df: pd.DataFrame, surface: tuple[dict, float],
-                 bandwidth: float = HOT_BANDWIDTH, shrinkage: float = HOT_SHRINKAGE,
-                 col: str = 'hot_zone') -> pd.DataFrame:
-    """Evaluate the shrunk hot-zone surface at each pitch's location.
+def _shrunk_on_grid(pts: np.ndarray, vals: np.ndarray, league: np.ndarray,
+                    bandwidth: float, shrinkage: float) -> np.ndarray:
+    """Kernel-smoothed, shrunk surface at every grid node: (nodes, value columns)."""
+    d2 = ((GRID_NODES[:, None, :] - pts[None, :, :]) ** 2).sum(-1)
+    w = np.exp(-d2 / (2 * bandwidth * bandwidth))
+    n_eff = w.sum(1)
+    out = np.empty((len(GRID_NODES), vals.shape[1]))
+    for k in range(vals.shape[1]):
+        raw = (w * vals[:, k]).sum(1) / np.maximum(n_eff, 1e-9)
+        out[:, k] = (n_eff * raw + shrinkage * league[k]) / (n_eff + shrinkage)
+    return out
 
-    Continuous, unlike the hull: a pitch just outside a hitter's best region is
-    worth slightly less rather than nothing. Hitters with no history get the
-    league mean, so they are neither dropped nor marked False.
+
+def surface_on_grid(surface: tuple[dict, np.ndarray], bandwidth: float = HOT_BANDWIDTH,
+                    shrinkage: float = HOT_SHRINKAGE) -> dict[int, np.ndarray]:
+    """Every batter's shrunk surface on the grid, for comparing surfaces directly."""
+    per_batter, league = surface
+    return {b: _shrunk_on_grid(p, v, league, bandwidth, shrinkage)
+            for b, (p, v) in per_batter.items()}
+
+
+def add_surface(df: pd.DataFrame, surface: tuple[dict, np.ndarray], cols: list[str],
+                bandwidth: float = HOT_BANDWIDTH, shrinkage: float = HOT_SHRINKAGE) -> pd.DataFrame:
+    """Evaluate a shrunk surface at each pitch's location, one column per value.
+
+    Continuous: a pitch just outside a hitter's best region is worth slightly
+    less rather than nothing. Hitters with no history get the league value, so
+    they are neither dropped nor marked False.
 
     Evaluated on a fixed grid and then looked up per pitch. Computing the kernel
-    directly at every pitch location costs one distance per (pitch, ball in
-    play) pair; on the grid it costs one per (grid node, ball in play) and the
-    per-pitch step becomes an array index. The surface varies on the scale of
-    the bandwidth, which is more than three times the grid spacing, so nothing
-    is lost.
+    directly at every pitch location costs one distance per (pitch, row of
+    history) pair; on the grid it costs one per (grid node, row of history)
+    and the per-pitch step becomes an array index.
     """
     per_batter, league = surface
     df = df.copy()
-    out = np.full(len(df), league)
+    out = np.tile(league, (len(df), 1))
     query = df[['plate_x_bat', 'plate_z_norm']].to_numpy()
     tracked = ~np.isnan(query).any(axis=1)
-    h2 = 2 * bandwidth * bandwidth
-
-    gx, gz = np.meshgrid(GRID_X, GRID_Z, indexing='ij')
-    nodes = np.column_stack([gx.ravel(), gz.ravel()])
 
     # Nearest grid node, not the one to the left: rounding rather than
     # searchsorted avoids a systematic half-cell bias in the looked-up value.
@@ -248,26 +277,59 @@ def add_hot_zone(df: pd.DataFrame, surface: tuple[dict, float],
         rows = rows[tracked[rows]]
         if not len(rows):
             continue
-        d2 = ((nodes[:, None, :] - pts[None, :, :]) ** 2).sum(-1)
-        w = np.exp(-d2 / h2)
-        n_eff = w.sum(1)
-        raw = (w * vals).sum(1) / np.maximum(n_eff, 1e-9)
-        shrunk = (n_eff * raw + shrinkage * league) / (n_eff + shrinkage)
-        out[rows] = shrunk[flat[rows]]
+        out[rows] = _shrunk_on_grid(pts, vals, league, bandwidth, shrinkage)[flat[rows]]
 
-    df[col] = out
+    for k, col in enumerate(cols):
+        df[col] = out[:, k]
     return df
+
+
+def add_hot_zone(df: pd.DataFrame, surface: tuple[dict, np.ndarray],
+                 bandwidth: float = HOT_BANDWIDTH, shrinkage: float = HOT_SHRINKAGE,
+                 col: str = 'hot_zone') -> pd.DataFrame:
+    """Evaluate the shrunk hot-zone surface at each pitch's location."""
+    return add_surface(df, surface, [col], bandwidth, shrinkage)
+
+
+def season_surface(df: pd.DataFrame, rows: pd.DataFrame, value_cols: list[str],
+                   cols: list[str], window: int = PRIOR_WINDOW) -> pd.DataFrame:
+    """Add a surface feature season by season, each from a fixed prior window of `rows`.
+
+    `rows` is the history the surface is built from (balls in play, swings, ...);
+    every season of `df` after the first is scored from the `window` seasons
+    before it, never its own.
+    """
+    seasons = sorted(df['season'].unique())
+    frames = []
+    for season in seasons[1:]:
+        history = rows[(rows['season'] < season) & (rows['season'] >= season - window)]
+        assert (history['season'] < season).all(), f'leak building {season}'
+        frames.append(add_surface(df[df['season'] == season],
+                                  value_surface(history, value_cols), cols))
+    return pd.concat(frames, ignore_index=True)
 
 
 def season_hot_zone(df: pd.DataFrame, window: int = PRIOR_WINDOW,
                     col: str = 'hot_zone') -> pd.DataFrame:
     """Add the hot-zone feature season by season, from a fixed prior window."""
-    bip = balls_in_play(df)
-    seasons = sorted(df['season'].unique())
-    frames = []
-    for season in seasons[1:]:
-        history = bip[(bip['season'] < season) & (bip['season'] >= season - window)]
-        assert (history['season'] < season).all(), f'leak building {season}'
-        scored = add_hot_zone(df[df['season'] == season], hot_zone_surface(history), col=col)
-        frames.append(scored)
-    return pd.concat(frames, ignore_index=True)
+    return season_surface(df, balls_in_play(df), ['launch_speed'], [col], window)
+
+
+def swings_with_outcome(df: pd.DataFrame) -> pd.DataFrame:
+    """Tracked swings, with 0/1 whiff and foul indicators to build surfaces from."""
+    sw = df[df['swing'] & df['plate_x_bat'].notna() & df['plate_z_norm'].notna()]
+    o = sw['outcome'].astype(str)
+    return sw.assign(_whiff=(o == 'swinging_strike').astype(float),
+                     _foul=(o == 'foul').astype(float))
+
+
+def season_contact_priors(df: pd.DataFrame, window: int = PRIOR_WINDOW) -> pd.DataFrame:
+    """Add `prior_whiff` / `prior_foul`: the hitter's location-smoothed, shrunk
+    whiff and foul rates per swing, from a fixed prior window.
+
+    Same estimator and settings as the hot zone, applied to swings instead of
+    balls in play. Contact skill varies by location too, which is why this is a
+    surface rather than one rate per hitter.
+    """
+    return season_surface(df, swings_with_outcome(df), ['_whiff', '_foul'],
+                          ['prior_whiff', 'prior_foul'], window)
