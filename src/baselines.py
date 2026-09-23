@@ -33,16 +33,26 @@ V1_SWING_PARAMS = {**_COMMON, 'max_depth': 7, 'learning_rate': 0.01}
 V1_ROUNDS = 200
 
 
+#: Hitter-specific features. They describe how a hitter makes contact, which
+#: cannot change what an umpire calls, so they belong on the swing side only.
+#: `fit_v1` keeps them out of the take model unless told otherwise.
+SWING_ONLY_FEATURES = {'in_nitro', 'hot_zone'}
+
+
 @dataclass
 class ActionModels:
-    """A take model and a swing model, plus the features they were fit on."""
+    """A take model and a swing model, each with its own feature list."""
     take: xgb.Booster
     swing: xgb.Booster
-    features: list[str]
+    take_features: list[str]
+    swing_features: list[str]
+
+    def features_for(self, action: str) -> list[str]:
+        return self.take_features if action == 'take' else self.swing_features
 
     def predict(self, df: pd.DataFrame, action: str) -> np.ndarray:
         booster = self.take if action == 'take' else self.swing
-        return booster.predict(_dmatrix(df, self.features))
+        return booster.predict(_dmatrix(df, self.features_for(action)))
 
 
 def _dmatrix(df: pd.DataFrame, features: list[str], label=None) -> xgb.DMatrix:
@@ -55,22 +65,35 @@ def _dmatrix(df: pd.DataFrame, features: list[str], label=None) -> xgb.DMatrix:
 def fit_v1(train: pd.DataFrame, target: str = 'target',
            features: list[str] | None = None,
            take_params: dict | None = None, swing_params: dict | None = None,
-           rounds: int = V1_ROUNDS) -> ActionModels:
-    """Fit v1's two action models: one on takes, one on swings.
+           rounds: int = V1_ROUNDS, swing_only: bool = True) -> ActionModels:
+    """Fit the two action models: one on takes, one on swings.
 
-    `features` is a parameter so v2 is this same call with `in_nitro` appended
-    rather than a copied function.
+    `features` is a parameter so each variant is the same call with a different
+    list rather than a copied function.
+
+    With `swing_only=True` (the default) any feature in `SWING_ONLY_FEATURES` is
+    given to the swing model and withheld from the take model. The take model
+    is a called-strike probability -- regressing its predictions on a fitted
+    P(called strike) gives a median R^2 of 0.991 within count -- and a hitter's
+    hot zone cannot change an umpire's call; letting it in lets `Q_take` vary
+    by hitter, so part of any personalization gain could arrive through the
+    wrong branch. `swing_only=False` reproduces the earlier behaviour, where
+    both models shared one list, for comparison.
     """
     features = list(features or V1_FEATURES)
+    swing_features = features
+    take_features = ([f for f in features if f not in SWING_ONLY_FEATURES]
+                     if swing_only else features)
     take = train[~train['swing']]
     swing = train[train['swing']]
 
     return ActionModels(
         take=xgb.train(take_params or V1_TAKE_PARAMS,
-                       _dmatrix(take, features, take[target]), rounds),
+                       _dmatrix(take, take_features, take[target]), rounds),
         swing=xgb.train(swing_params or V1_SWING_PARAMS,
-                        _dmatrix(swing, features, swing[target]), rounds),
-        features=features,
+                        _dmatrix(swing, swing_features, swing[target]), rounds),
+        take_features=take_features,
+        swing_features=swing_features,
     )
 
 

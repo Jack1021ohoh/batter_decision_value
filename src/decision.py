@@ -5,17 +5,15 @@ Each function turns the counterfactual pair produced by `baselines.predict_both`
 Aggregating that number over a hitter's season gives his decision value.
 
 The choice between them is not cosmetic. They disagree about which hitters
-decide well (rank correlation ~0.72 between the extremes), and they are
-contaminated by pitch mix in opposite directions:
+decide well, and they are contaminated by pitch mix in different directions:
 
 * `chosen_value` scores the action taken. A taken ball and a swung-at strike
   both pay, so the two largely cancel and it is the least sensitive to which
   pitches a hitter saw -- but conceptually it credits him for the pitches he
   was thrown, not only for his choices.
 * `signed_edge` scores how much better the chosen action was than the
-  alternative. It pays about five times more for an obvious take (a pitch a
-  foot outside) than for a genuinely close call, so it rewards being thrown
-  junk.
+  alternative. It pays about eight times more per pitch for an obvious take
+  than for a genuinely close call, so it can reward being thrown junk.
 * `regret` is `max(0, -signed_edge)`: the same quantity with the positive half
   discarded. It cannot be inflated by easy correct decisions, because correct
   decisions score zero -- but its largest error is taking a hittable pitch, so

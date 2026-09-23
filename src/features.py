@@ -101,9 +101,15 @@ def add_in_nitro(df: pd.DataFrame, hulls: dict[int, np.ndarray],
     return df
 
 
-def season_in_nitro(df: pd.DataFrame, min_bip: int = MIN_BIP,
-                    col: str = 'in_nitro') -> tuple[pd.DataFrame, pd.DataFrame]:
+def season_in_nitro(df: pd.DataFrame, min_bip: int = MIN_BIP, col: str = 'in_nitro',
+                    window: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Add `in_nitro` season by season, each hull built from prior seasons only.
+
+    `window=None` uses every prior season, as the v2 rebuild does. That drifts:
+    hull area grows with accumulated history, so the flag fires on 14.5% of
+    pitches with one prior season and 25.1% with four. `window=2` fixes the
+    prior to the two seasons before, matching the continuous surface, so the
+    two can be compared on equal footing.
 
     Returns the frame (seasons with no prior are dropped, since they cannot be
     scored without leaking) and a coverage table, which matters: at 79-88%
@@ -116,6 +122,8 @@ def season_in_nitro(df: pd.DataFrame, min_bip: int = MIN_BIP,
 
     for season in seasons[1:]:                      # the first has no prior
         history = prior_seasons(bip, season)
+        if window is not None:
+            history = history[history['season'] >= season - window]
         assert (history['season'] < season).all(), f'leak building {season}'
 
         hulls = batter_hulls(history, min_bip=min_bip)
@@ -128,7 +136,7 @@ def season_in_nitro(df: pd.DataFrame, min_bip: int = MIN_BIP,
         qualified = pitches[pitches >= 500].index
         coverage.append({
             'season': season,
-            'prior_seasons': f'{seasons[0]}-{season - 1}',
+            'prior_seasons': f'{history["season"].min()}-{season - 1}',
             'hulls': len(hulls),
             'qualified': len(qualified),
             'qualified_with_hull': int(qualified.isin(hulls).sum()),
@@ -159,8 +167,10 @@ HOT_BANDWIDTH = 0.35
 HOT_SHRINKAGE = 60.0
 
 #: Fixed prior window. Hull area grows with accumulated history -- the binary
-#: flag fires on 14.5% of pitches with one prior season and 26.1% with five --
+#: flag fires on 14.5% of pitches with one prior season and 25.1% with four --
 #: so a fixed window is what keeps the feature meaning the same thing each year.
+#: Two seasons also beats one as a predictor of the next season's surface
+#: (EDA section 6).
 PRIOR_WINDOW = 2
 
 

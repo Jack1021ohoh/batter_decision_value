@@ -379,8 +379,9 @@ def recover_batter_height(df: pd.DataFrame, abs_season: int = 2026) -> pd.Series
     zone in each era's own units makes 2026 look more generous than 2021 purely
     because the ABS nominal zone is ~2.8 in shorter.
 
-    Returns a Series indexed by batter; batters absent from `abs_season` are
-    missing and need the fallback in `add_zone_frame(common_zone=True)`.
+    Kept as the verification of `listed_heights`: rounded to the inch these
+    recovered heights equal the listed heights for every 2026 batter. Only
+    batters who appear in `abs_season` are covered.
     """
     src = df[df['season'] == abs_season]
     if src.empty:
@@ -390,21 +391,69 @@ def recover_batter_height(df: pd.DataFrame, abs_season: int = 2026) -> pd.Series
     return height.rename('height')
 
 
-def add_common_zone(df: pd.DataFrame, abs_season: int = 2026) -> pd.DataFrame:
-    """Attach one height-derived strike zone that means the same thing in every season.
+#: Listed heights from the MLB Stats API, cached so analysis runs offline.
+HEIGHTS_PATH = CACHE_DIR / 'listed_heights.parquet'
 
-    Adds `zone_top` / `zone_bot`. Batters never seen in `abs_season` fall back
-    to their own median operator-set bounds, which removes the per-pitch noise
-    even though it keeps whatever operator bias that batter carried.
+
+def fetch_listed_heights(batters) -> pd.Series:
+    """MLB's listed height, in inches, for each batter id."""
+    import re
+    ids = sorted({int(b) for b in batters})
+    out = {}
+    for i in range(0, len(ids), 150):
+        r = requests.get(f'{STATS_API}/people',
+                         params={'personIds': ','.join(map(str, ids[i:i + 150]))}, timeout=60)
+        r.raise_for_status()
+        for person in r.json()['people']:
+            m = re.match(r"(\d+)'\s*(\d+)", person.get('height') or '')
+            if m:
+                out[person['id']] = int(m[1]) * 12 + int(m[2])
+    return pd.Series(out, name='height_in').rename_axis('batter')
+
+
+def listed_heights(refresh: bool = False) -> pd.Series:
+    """Listed height in inches for every batter in the cache, fetched once and stored.
+
+    ABS sets the zone from a measured height in fractional inches; the listed
+    height is that measurement rounded to the inch. Recovering height from the
+    2026 ABS zone (`recover_batter_height`) and rounding reproduces the listed
+    height for all 659 batters who appear in 2026, with a mean difference of
+    0.00 in; the unrounded values differ by 0.2-0.5 in. So `0.535 x listed`
+    and `0.27 x listed` put the zone within ~0.27 in of the recorded ABS zone
+    at the top and ~0.14 in at the bottom, for any batter in any season --
+    including the many who never batted in 2026 and so have no recorded ABS
+    zone at all. Those errors are well below the ball radius (1.44 in) and the
+    per-pitch operator noise the common zone replaces (~1 in).
     """
-    df = df.copy()
-    height = recover_batter_height(df, abs_season=abs_season)
-    h = df['batter'].map(height)
+    if HEIGHTS_PATH.exists() and not refresh:
+        return pd.read_parquet(HEIGHTS_PATH)['height_in']
+    batters = pd.concat([pd.read_parquet(p, columns=['batter'])
+                         for p in sorted(CACHE_DIR.glob('20*.parquet'))])['batter'].unique()
+    heights = fetch_listed_heights(batters)
+    heights.to_frame().to_parquet(HEIGHTS_PATH)
+    return heights
 
-    fallback = df.groupby('batter')[['sz_top', 'sz_bot']].transform('median')
-    df['zone_top'] = np.where(h.notna(), ABS_TOP_FRAC * h, fallback['sz_top'])
-    df['zone_bot'] = np.where(h.notna(), ABS_BOT_FRAC * h, fallback['sz_bot'])
-    df['zone_from_height'] = h.notna()
+
+def common_zone_bounds(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Top and bottom of the ABS zone, in feet, for every row's batter.
+
+    One definition in every season: 27% and 53.5% of listed height. Through
+    2025 `sz_top`/`sz_bot` were set per pitch by an operator; from 2026 they
+    are this ABS zone. Using them directly means "in the zone" changes meaning
+    at the 2025/2026 boundary, which is the thing this project harmonizes.
+    """
+    h = df['batter'].map(listed_heights()) / 12
+    missing = h.isna()
+    if missing.any():
+        raise ValueError(f'{df.loc[missing, "batter"].nunique()} batters have no listed height; '
+                         'run listed_heights(refresh=True)')
+    return ABS_TOP_FRAC * h, ABS_BOT_FRAC * h
+
+
+def add_common_zone(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach `zone_top` / `zone_bot`: the ABS zone from listed height, every season."""
+    df = df.copy()
+    df['zone_top'], df['zone_bot'] = common_zone_bounds(df)
     return df
 
 
@@ -414,43 +463,51 @@ def add_zone_frame(df: pd.DataFrame) -> pd.DataFrame:
     `plate_x` is catcher-relative, so +0.7 ft is outside to a right-handed
     batter and inside to a left-handed one. Mirroring makes positive mean
     inside for everyone and doubles the data available per location.
-    `plate_z_n` normalizes height to the batter's own zone: 0 is the bottom,
-    1 the top.
+
+    `plate_z_norm` is height relative to the batter's common zone: 0 at the
+    bottom, 1 at the top. It uses `zone_top`/`zone_bot`, not `sz_top`/`sz_bot`
+    -- the operator-set bounds carry 0.07-0.10 ft of per-pitch noise through
+    2025 and change definition in 2026.
     """
-    df = df.copy()
+    if 'zone_top' not in df:
+        df = add_common_zone(df)
+    else:
+        df = df.copy()
     x = df['plate_x_mid'] if 'plate_x_mid' in df else df['plate_x']
     z = df['plate_z_mid'] if 'plate_z_mid' in df else df['plate_z']
     df['plate_x_bat'] = np.where(df['stand'].astype(str) == 'R', -x, x)
-    df['plate_z_norm'] = (z - df['sz_bot']) / (df['sz_top'] - df['sz_bot'])
+    df['plate_z_norm'] = (z - df['zone_bot']) / (df['zone_top'] - df['zone_bot'])
     return df
 
 
-def in_rulebook_zone(df: pd.DataFrame, ball_edge: bool = True) -> pd.Series:
+def in_rulebook_zone(df: pd.DataFrame, ball_edge: bool = True,
+                     zone: str = 'common') -> pd.Series:
     """Whether the pitch is in the strike zone.
 
-    `ball_edge=True` (the default, and correct for every season) applies the
-    rulebook convention: a strike is a pitch *any part of* which passes through
-    the zone, so the effective half-width is the plate half-width plus the ball
-    radius.
+    `ball_edge=True` (the default) applies the rulebook convention on **all
+    four edges**: a strike is a pitch *any part of* which passes through the
+    zone, so the zone is widened by one ball radius left, right, top and
+    bottom. ABS uses the same standard. EDA section 4 found the empirical
+    called-strike boundary one ball radius outside the zone on the top and
+    bottom edges as well as the sides.
 
-    ABS uses the same any-part-of-the-ball standard -- it evaluates it on a 2D
-    plane at the midpoint of the plate rather than through the 3D volume, but
-    it does **not** judge the ball's centre. Confirmed empirically: in 2026 the
-    50% called-strike boundary sits ~0.13-0.16 ft outside the nominal zone on
-    the top and bottom edges, against a ball radius of 0.121 ft, and at 0.847
-    ft horizontally against 0.829 ft predicted by any-part-of-ball. A
-    centre-based zone would put those at 0.0 and 0.708.
+    `zone='common'` (the default) uses the ABS zone from listed height, so the
+    answer means the same thing in every season. `zone='nominal'` uses each
+    season's own `sz_top`/`sz_bot`, for analyses that deliberately measure
+    against the zone as recorded at the time.
 
-    What actually changed in 2026 is the *nominal* zone: ABS sets it from
-    batter height (27%-53.5%), which runs ~2.6 in lower at the top than the
-    operator-set zone it replaced.
-
-    `ball_edge=False` is retained only for sensitivity analysis.
+    `ball_edge=False` judges the ball's centre, for sensitivity analysis only.
     """
-    half = PLATE_HALF_WIDTH_FT + (BALL_RADIUS_FT if ball_edge else 0.0)
+    r = BALL_RADIUS_FT if ball_edge else 0.0
     x = df['plate_x_mid'] if 'plate_x_mid' in df else df['plate_x']
     z = df['plate_z_mid'] if 'plate_z_mid' in df else df['plate_z']
-    return x.abs().le(half) & z.between(df['sz_bot'], df['sz_top'])
+    if zone == 'common':
+        top, bot = common_zone_bounds(df)
+    elif zone == 'nominal':
+        top, bot = df['sz_top'], df['sz_bot']
+    else:
+        raise ValueError(f"zone must be 'common' or 'nominal', not {zone!r}")
+    return x.abs().le(PLATE_HALF_WIDTH_FT + r) & z.between(bot - r, top + r)
 
 
 def run_value_table(df: pd.DataFrame, years) -> pd.Series:
