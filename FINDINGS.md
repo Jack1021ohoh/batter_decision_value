@@ -8,9 +8,15 @@ running it.
 folds and each of 2023, 2024 and 2025 is scored by a model that never saw it;
 year-over-year and next-season checks use the 2023→24 and 2024→25 pairs.
 Generic variants train from 2021; whenever a personalized variant is in a
-comparison, every row trains from 2022 and uses 2021 only as prior data. 2026
-has not been scored — it is the final test, run once after every decision is
-locked.
+comparison, every row trains from 2022 and uses 2021 only as prior data.
+
+**2026 is not an untouched test.** It is excluded from everything here, but
+earlier versions of the project scored it: they printed a 2026 leaderboard and
+averaged the 2025→26 pairs into the headline means that informed the choice of
+metric and features. Re-making those decisions on the folds changes the
+evidence, not that history. 2026 will be reported as a previously inspected,
+out-of-regime evaluation (the first ABS season); the confirmatory test is
+reserved for 2027, a season no version has seen.
 
 ---
 
@@ -344,9 +350,12 @@ against 16–30 later. Overseas games are dropped; Toronto is kept.
 
 ## Method notes worth keeping
 
-- **Select on held-out seasons, and keep the final test untouched.** Every
-  decision here was made on the 2023–2025 folds; 2026 is scored once, at the
-  end, by a model trained through 2024 and one trained through 2025.
+- **Select on held-out seasons, and keep the test untouched — from the first
+  version on.** Every decision here was re-made on the 2023–2025 folds, but
+  2026 had already been inspected by earlier versions, and removing it from the
+  code does not undo that. It is now an out-of-regime evaluation, scored at the
+  end by a model trained through 2024 and one trained through 2025; a clean
+  confirmatory test needs a season never looked at (2027).
 - **One zone definition for every season.** Using each season's own
   `sz_top`/`sz_bot` changes the meaning of "in the zone" at the 2025/2026
   boundary; so does applying the ball radius on some edges and not others.

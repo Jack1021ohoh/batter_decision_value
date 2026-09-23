@@ -7,8 +7,10 @@ FINDINGS.md compares like with like. Three of the choices here are not obvious:
   (`GENERIC_FOLDS`, `PERSONALIZED_FOLDS`) and each validation season is scored
   by the one fold model that did not train on it. The player-metric checks see
   those scores alone: split-half within 2023, 2024 and 2025, year-over-year and
-  next-season validity on 2023->24 and 2024->25. 2026 is the final test and
-  `run_folds` refuses to touch it.
+  next-season validity on 2023->24 and 2024->25. `run_folds` refuses 2026:
+  it is kept out of model selection. (It is not a clean test -- earlier
+  versions scored it -- so it is reported at the end as an out-of-regime
+  evaluation, with 2027 reserved for a confirmatory test.)
 * **Sub-models are judged on conditional means, not pitch-level RMSE.** An
   individual swing outcome is close to irreducible, so pitch-level error is
   dominated by noise the model is not trying to predict. `bin_calibration`
@@ -54,9 +56,11 @@ PERSONALIZED_FOLDS = (((2022,), 2023),
 
 HELD_OUT = (2023, 2024, 2025)
 
-#: The final test season. Scored once per model after every decision is
-#: locked, never during model selection.
-FINAL_SEASON = 2026
+#: Kept out of model selection. The first ABS season: scored at the end as an
+#: out-of-regime evaluation. Not a clean test -- earlier versions of the
+#: project scored and inspected it -- so a confirmatory test needs a later
+#: season.
+EXCLUDED_SEASON = 2026
 
 
 @dataclass
@@ -86,8 +90,8 @@ def run_folds(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
     frames, models = [], {}
     for train_seasons, valid in folds:
         train_seasons = tuple(train_seasons)
-        if FINAL_SEASON in (*train_seasons, valid):
-            raise ValueError(f'{FINAL_SEASON} is the final test season; it has no place in a fold')
+        if EXCLUDED_SEASON in (*train_seasons, valid):
+            raise ValueError(f'{EXCLUDED_SEASON} is kept out of model selection; it has no place in a fold')
         assert valid not in train_seasons and max(train_seasons) < valid
 
         rv = D.run_value_table(df, train_seasons)
@@ -221,8 +225,8 @@ def whiff_auc(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
     whiff = (sw['outcome'] == 'swinging_strike').astype(int)
     rows = []
     for train_seasons, valid in folds:
-        if FINAL_SEASON in (*train_seasons, valid):
-            raise ValueError(f'{FINAL_SEASON} is the final test season; it has no place in a fold')
+        if EXCLUDED_SEASON in (*train_seasons, valid):
+            raise ValueError(f'{EXCLUDED_SEASON} is kept out of model selection; it has no place in a fold')
         tr, va = sw['season'].isin(train_seasons), sw['season'] == valid
         booster = xgb.train(params or WHIFF_PARAMS, _dmatrix(sw[tr], features, whiff[tr]), rounds)
         p = booster.predict(_dmatrix(sw[va], features))

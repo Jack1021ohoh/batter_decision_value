@@ -31,8 +31,12 @@ This framework separates the two.
 
 Every model result is **held out**. Each variant is fitted on rolling-origin
 folds and each of 2023, 2024 and 2025 is scored by a model that never saw it.
-2026 has not been scored: it is the final test, run once after every design
-decision is locked.
+2026 is kept out of model selection, but it is not a clean test: earlier
+versions of this project scored it, printed a 2026 leaderboard, and averaged
+its pairs into the headline figures that informed the metric and feature
+choices. It will be reported as a previously inspected, out-of-regime
+evaluation — the first ABS season. A confirmatory test needs a season no
+version has seen, so 2027 is reserved for that.
 
 Next is an event-decomposition redesign — modelling whiff, foul and in-play
 separately rather than regressing run value directly. v3 supports the premise:

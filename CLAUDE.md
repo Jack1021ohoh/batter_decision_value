@@ -135,11 +135,14 @@ belong in `FINDINGS.md`, not there.
 - Hitter-level features for season *t* must be built from seasons < *t*, or the
   feature encodes the outcome it is used to predict. `season_in_nitro` and
   `season_hot_zone` enforce and assert it.
-- **Every design decision is made on held-out folds; 2026 is scored once, at
-  the end.** Use `E.run_folds` + `E.harness`, never a model scored on its own
+- **Every design decision is made on held-out folds; 2026 stays out of
+  selection.** Use `E.run_folds` + `E.harness`, never a model scored on its own
   training seasons. Whenever a personalized variant is in a comparison, every
-  row uses `PERSONALIZED_FOLDS`. The final step keeps two models — A (through
-  2024) and B (through 2025) — and scores 2026 with both.
+  row uses `PERSONALIZED_FOLDS`. 2026 is **not** a clean test — earlier
+  versions scored it and printed a 2026 leaderboard — so describe it as a
+  previously inspected, out-of-regime evaluation. The final step keeps two
+  models, A (through 2024) and B (through 2025), and scores 2026 with both. The
+  confirmatory test is reserved for 2027.
 - Findings that should not be re-litigated without new evidence
   (all in `FINDINGS.md`, all reproducible from `notebooks/v3.ipynb`):
   - The selected score is **`signed_edge`**. By the criterion fixed in advance
