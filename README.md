@@ -27,7 +27,8 @@ This framework separates the two.
 | `notebooks/eda.ipynb` | exploratory analysis, seven sections, each ending in a decision |
 | `notebooks/v1_baseline.ipynb` | location and count — the simplest design worth measuring, and the floor |
 | `notebooks/v2_baseline.ipynb` | v1 plus a binary hot-zone flag |
-| **`notebooks/v3.ipynb`** | the current model: batter-frame features, a continuous hot-zone surface, and the metric comparison behind both |
+| `notebooks/v3.ipynb` | batter-frame features, a continuous hot-zone surface, and the metric comparison behind both |
+| **`notebooks/v4_decomposition.ipynb`** | whiff / foul / in-play decomposition against a matched direct twin; the learner fix that gives the current model |
 
 Every model result is **held out**. Each variant is fitted on rolling-origin
 folds and each of 2023, 2024 and 2025 is scored by a model that never saw it.
@@ -38,10 +39,12 @@ choices. It will be reported as a previously inspected, out-of-regime
 evaluation — the first ABS season. A confirmatory test needs a season no
 version has seen, so 2027 is reserved for that.
 
-Next is an event-decomposition redesign — modelling whiff, foul and in-play
-separately rather than regressing run value directly. v3 supports the premise:
-whiff probability predicts at AUC 0.77 on held-out seasons, far better than the
-run value of a swing can be predicted pitch by pitch.
+**The current model** is v3's design — full pitch frame, a hot-zone surface
+on the swing side, `signed_edge` — fitted with early stopping instead of v1's
+fixed settings. Held out it reaches next-season partial r 0.167, Zone% |r|
+0.169, split-half 0.844 and YoY R² 0.629. Modelling the swing as whiff / foul /
+in play instead was tested against a matched direct twin and **ties**: the two
+give hitter-season values that correlate 0.998.
 
 ### Where the baselines landed
 
@@ -96,11 +99,29 @@ contamination the field shares and this project has not solved — see
 on pitch-level RMSE, which reads as though nothing observable before the pitch
 predicts what follows a swing. That reading is wrong: individual swing outcomes
 are close to irreducible, and the model estimates their mean. Scored on
-held-out (location × count) bin means, the batter-frame model recovers most of
-the location structure a count-only predictor misses. The same check suggests
-it understates how much better a swing over the middle is than one at the edge:
-the calibration slope is above 1 in every held-out season. That check sees only
-location and count, and has no confidence interval yet.
+held-out bin means, it recovers most of the structure a count-only predictor
+misses. Under v1's fixed settings its predictions were too compressed —
+observed means spread about a quarter more than predicted — and early stopping fixes
+that (calibration slope 1.01–1.05, with 1 inside the interval in 2024 and 2025).
+
+### Track B: decomposing the swing
+
+`notebooks/v4_decomposition.ipynb` models a swing as what it produces — whiff,
+foul, or ball in play — and compares that against a direct regression sharing
+every other choice, including the take model itself.
+
+- **It ties**, with and without the hot zone. No win condition fixed in advance
+  is met, so the simpler direct model stays. The decomposition's one advantage
+  is stability: its Δ varies less across refits (SD 0.0070 against 0.0086
+  runs).
+- **Contact priors reproduce but corrupt the score.** A hitter's whiff-rate
+  surface is as stable as his hot zone, and it improves outcome prediction —
+  but it moves the score toward "is he a good contact hitter" (zone-swing |
+  chase 0.648 → 0.582). Dropped.
+- **Against simple benchmarks**, O-Swing% is heavily contaminated (Zone% |r|
+  0.421). Z-Swing% − O-Swing% is less contaminated than the model (0.114
+  against 0.169) and nearly as predictive (0.146 against 0.167), though less
+  reliable — the benchmark to beat on contamination.
 
 [`FINDINGS.md`](FINDINGS.md) collects what the data established — results, the
 metric analysis, the 2026 ABS measurement regime, and the method notes worth
@@ -181,8 +202,9 @@ every analysis starts from the same definitions.
 
 ```
 src/data.py                 loading, caching, cleaning, 2026 harmonization, the common zone
-src/features.py             hitter features: prior-season hull, continuous hot-zone surface
-src/baselines.py            the two action models (take, swing) and how they score a pitch
+src/features.py             hitter features: prior-season hull, location surfaces (hot zone, contact priors)
+src/baselines.py            the two action models (take, swing), the shared learner, how they score a pitch
+src/decomposition.py        the whiff / foul / in-play swing model
 src/decision.py             the per-pitch decision scores (signed_edge selected)
 src/evaluate.py             folds, held-out harness: reliability, validity, contamination, calibration
 
@@ -191,6 +213,7 @@ notebooks/eda.ipynb         exploratory analysis, §1–§7
 notebooks/v1_baseline.ipynb location + count
 notebooks/v2_baseline.ipynb v1 + nitro zone, de-leaked
 notebooks/v3.ipynb          metric choice, pitch frame, take-model check, hot-zone surface
+notebooks/v4_decomposition.ipynb  Track B: decomposition vs direct twin, learner fix
 
 data/                       raw CSVs and parquet cache (gitignored)
 FINDINGS.md                 measured results and method notes

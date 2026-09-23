@@ -51,6 +51,12 @@ pitches, each holding the other fixed — which slips by 0.02–0.03 on each hal
 In-sample scoring would have flattered v3 only modestly: YoY R² 0.643 against
 0.624 held out, Zone% 0.223 against 0.184.
 
+**The current model** is the same design with the learner fixed: early
+stopping instead of v1's fixed settings raises next-season validity to 0.167
+and lowers Zone% to 0.169 (split-half 0.844, YoY 0.629, construct −0.885 /
++0.662). Decomposing the swing into whiff / foul / in play was tested against
+it and ties — see "Track B" below.
+
 ---
 
 ## Choosing the per-pitch score
@@ -214,11 +220,15 @@ What this check can and cannot say:
   estimate and is for comparing variants, not a ceiling.
 - **The slope is the more robust figure.** It is fitted across ~600 bins, and
   noise in the observed means widens its uncertainty without biasing it. It
-  is above 1 in all three held-out seasons and at every feature set, so the
-  model understates the location contrast in swing value. It has no
-  confidence interval yet, and a calibration check grouped by *predicted*
-  value — which would cover features that vary within a cell — has not been
-  run.
+  is above 1 in all three held-out seasons and at every feature set.
+
+**That slope was undertraining, not a limit of the data** (Track B, below).
+With 95% intervals from resampling games, and a second check grouping pitches
+by *predicted* value so it covers the whole model: under v1's settings
+(learning rate 0.01, 200 rounds) the predicted-value slope is 1.21–1.26, every
+interval well above 1. With early stopping it is 1.01–1.05, and its interval
+contains 1 in 2024 and 2025. The swing model's predictions were too compressed
+because the boosting stopped short, and the v1–v3 figures above carry that.
 
 **Withdrawn:** the earlier "only 1.9% of variance is learnable" and "recovers
 90.6% / 94.5% of the learnable signal". Both were in-sample r² over one binning;
@@ -229,8 +239,63 @@ feature can explain.
 probability predicts at **AUC 0.77** on held-out seasons, with velocity and
 movement adding clearly over location and count in every season (AUC
 0.73 → 0.77; log loss 14.5–14.9% → 17.7–18.3% better than the base rate). That
-is the case for modelling whiff / foul / in-play separately rather than
-regressing run value directly.
+was the case for modelling whiff / foul / in-play separately — and Track B
+found it does not change the metric.
+
+---
+
+## Track B: event decomposition ties the direct model
+
+`notebooks/v4_decomposition.ipynb`. The swing is modelled as what it produces,
+
+```
+Q_swing(s) = P(whiff|s)·RE(whiff, c) + P(foul|s)·RE(foul, c) + P(in play|s)·E[run value | in play, s]
+```
+
+against a **direct twin** that shares everything else — score, pitch
+features, hitter priors, folds, learner, and the take model itself (asserted
+identical). Every sub-model in both twins is fitted the same way: learning rate
+0.05, rounds by early stopping on 10% of training games. Personalized folds,
+held out.
+
+| | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
+|---|---|---|---|---|---|---|
+| direct, full pitch frame | −0.916 | 0.711 | 0.815 | 0.584 | 0.269 | 0.104 |
+| decomposed, full pitch frame | −0.914 | 0.706 | 0.816 | 0.583 | 0.270 | 0.100 |
+| direct + hot zone | −0.885 | 0.662 | 0.844 | 0.629 | 0.169 | 0.167 |
+| decomposed + hot zone | −0.877 | 0.648 | 0.845 | 0.632 | 0.162 | 0.171 |
+
+**A tie, generic and personalized.** No win condition fixed in advance is met.
+The twins recommend a different action on 2.3% of pitches and their
+hitter-season values correlate 0.998. The decomposed classifier is accurate and
+calibrated (whiff AUC 0.764–0.770, per-class slopes 0.96–1.02), but a direct
+regression with the same features and enough rounds already captures what it
+knows. By the rule set before the numbers, **the direct model stays.**
+
+**The decomposition's one advantage is stability.** Refit on resampled games,
+its Δ varies less (SD 0.0070 against 0.0086 runs) and fewer pitches change
+recommended action (5.7% against 6.5%). Nearly all of that instability, in
+both twins, sits on the 11% of pitches whose Δ is within 0.02 runs of zero.
+Stability was not a win condition, so it does not change the verdict.
+
+**Contact priors reproduce but corrupt the score.** A hitter's whiff-rate
+surface predicts the next season's at r ≈ 0.66–0.67 (foul rate 0.43–0.46), and
+it improves outcome prediction (whiff AUC → 0.777–0.782). But given to the
+decomposed classifier it moves the score toward "is he a good contact hitter":
+zone-swing | chase 0.648 → 0.582, YoY 0.632 → 0.615, Zone% 0.162 → 0.184. A
+hitter who rarely whiffs gets a higher `Q_swing` everywhere, whatever his
+decisions. Dropped.
+
+**The learner is the real gain.** Early stopping alone, on the Track A model
+(full pitch frame + hot zone, swing-only), raises next-season validity 0.154 →
+0.167 and cuts Zone% contamination 0.184 → 0.169, at a small construct cost
+(−0.895 / +0.677 → −0.885 / +0.662). That is **the current model.**
+
+**Benchmarks.** O-Swing% is heavily contaminated (Zone% |r| 0.421) and weakly
+predictive (0.077). Z-Swing% − O-Swing% is a stronger baseline than expected:
+less contaminated than the current model (0.114 against 0.169) and nearly as
+predictive (0.146 against 0.167), though less reliable (YoY 0.557 against
+0.629). It is the benchmark to beat on contamination.
 
 ---
 
@@ -366,6 +431,13 @@ against 16–30 later. Overseas games are dropped; Toronto is kept.
 - **Prior-window features drift when the window grows.** With every prior
   season, the hull flag fires on 14.5% of pitches in 2022 and 25.1% in 2025.
   A fixed two-season window holds it at 20–21%.
+- **Check the learner before blaming the data.** A swing model that looked
+  like it could not learn the size of location effects was simply stopped too
+  early. Calibrate by predicted value, with intervals, before drawing
+  conclusions from a slope.
+- **A better sub-model is not a better metric.** Contact priors and the
+  decomposition both improved outcome prediction and left the decision metric
+  unchanged or worse. Judge a model change by the metric's checks.
 - **A check grouped by location cannot credit a feature that varies within a
   location.** Pitch characteristics and the hot zone both look inert on the
   bin-mean check while mattering elsewhere.

@@ -67,8 +67,11 @@ belong in `FINDINGS.md`, not there.
   `drop_pitchers_batting()`, and the fetch helpers (`season_bounds`,
   `game_venues`, `drop_overseas`, `fetch_season`).
 - `src/baselines.py` — baseline models. `fit_v1()` takes a feature list, so v2
-  is the same call with `in_nitro` appended rather than a copy. Hitter features
-  (`SWING_ONLY_FEATURES`) go to the swing model only unless
+  is the same call with `in_nitro` appended rather than a copy. `fit_direct()`
+  is the same two-model design under `LEARNER` (learning rate 0.05, rounds by
+  early stopping on 10% of training games); it is the current model's fit and
+  Track B's direct twin. `fit_v1` is left untouched so v1–v3 reproduce.
+  Hitter features (`SWING_ONLY_FEATURES`) go to the swing model only unless
   `swing_only=False`; v2 uses that to reproduce its as-designed routing.
   `predict_chosen()` is v1's defining choice (score the action actually taken);
   `predict_both()` gives the counterfactual pair every later variant needs.
@@ -80,7 +83,16 @@ belong in `FINDINGS.md`, not there.
   `yoy_reliability`, `zone_pct_correlation` (the SOTO test),
   `predictive_validity`, plus `bin_calibration` for each sub-model.
   `in_sample_checks()` reports the last fold on its own training seasons,
-  separately. Also `whiff_auc`, `rmse_vs_count_baseline`.
+  separately. `run_folds(fit=...)` takes any fit function returning an object
+  with `.predict(df, action)`. Calibration: `bin_calibration` (by location ×
+  count) and `prediction_calibration` (by predicted value, covers the whole
+  model), each with a game-resampled interval (`ci=True`);
+  `outcome_diagnostics` for the decomposed classifier. Also `whiff_auc`,
+  `rmse_vs_count_baseline`.
+- `src/decomposition.py` — Track B's whiff / foul / in-play swing model.
+  `fit_decomposed` shares `fit_take` with `fit_direct`, so the twins' `Q_take`
+  is identical (asserted in the notebook). Contact priors route to the
+  classifier, damage priors to the in-play value model.
 - `src/decision.py` — the per-pitch scores, swappable: `chosen_value`,
   `signed_edge`, `regret`, `close_weighted`, `correct_decision`.
   `DEFAULT_SCORE = 'signed_edge'` — keeps the run-value magnitude, as every
@@ -92,14 +104,16 @@ belong in `FINDINGS.md`, not there.
   semantics, so a hitter with no hull scores False rather than being dropped),
   `season_in_nitro` (builds each season's hulls from prior seasons only, and
   asserts it). `is_inside_hull_rowwise` is kept to verify the vectorized test.
-  Also the continuous version — `hot_zone_surface`, `add_hot_zone`,
-  `season_hot_zone` (fixed two-season prior window). **Not inert** — it is the
-  most valuable feature found, but only under a magnitude-sensitive metric; a
-  sign-based one cannot register it. See FINDINGS.md.
+  Also location surfaces for any per-row quantity (`value_surface`,
+  `add_surface`, `season_surface`, fixed two-season prior window):
+  `season_hot_zone` (exit velocity) and `season_contact_priors` (whiff and foul
+  rates). The hot zone is **not inert** — it is the most valuable feature
+  found, but only under a magnitude-sensitive metric; a sign-based one cannot
+  register it. See FINDINGS.md.
 - `notebooks/` — `data_fetch.ipynb` (the pulls), `eda.ipynb` (§1–§7, ends in a
   decisions table), `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb`
-  (the patch). All do `sys.path.insert(0, '..')`. The model notebooks load
-  2021–2025 only.
+  (the patch), `v4_decomposition.ipynb` (Track B). All do
+  `sys.path.insert(0, '..')`. The model notebooks load 2021–2025 only.
 - Key EDA results now in `FINDINGS.md`: ABS band is exactly
   27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
   suffices); counterfactual support is thinnest on 3-0 off the plate, where the
@@ -144,20 +158,24 @@ belong in `FINDINGS.md`, not there.
   models, A (through 2024) and B (through 2025), and scores 2026 with both. The
   confirmatory test is reserved for 2027.
 - Findings that should not be re-litigated without new evidence
-  (all in `FINDINGS.md`, all reproducible from `notebooks/v3.ipynb`):
+  (all in `FINDINGS.md`, reproducible from `notebooks/v3.ipynb` and
+  `notebooks/v4_decomposition.ipynb`):
   - The selected score is **`signed_edge`**. By the criterion fixed in advance
     `correct_decision` measures better on construct validity; `signed_edge` is
     kept because it retains the run-value magnitude and is the only candidate
     that gains substantially from personalization without collapsing construct
     validity. Its pitch-mix contamination is real and unsolved.
   - **Never judge the swing model by pitch-level RMSE.** Score it on held-out
-    (location × count) bin means against a count-only predictor, with a
-    calibration slope (`E.bin_calibration`). That check groups by location and
-    count only, so it cannot credit features that vary within a cell (pitch
-    characteristics, the hot zone). Its slope is above 1 in every held-out
-    season — the model understates the location contrast — but has no
-    confidence interval yet, and a check grouped by predicted value is not
-    built.
+    conditional means with a calibration slope and interval —
+    `E.prediction_calibration` for the whole model, `E.bin_calibration` for the
+    location pattern (which cannot credit features that vary within a cell).
+    Under v1's fixed settings the swing model was too compressed (slope
+    1.21–1.26); early stopping calibrates it (1.01–1.05). **The current model
+    is v3's design fitted with `fit_direct`.**
+  - **Track B: decomposition ties the direct model**, generic and
+    personalized (`v4_decomposition.ipynb`); the direct model stays. Contact
+    priors (whiff/foul surfaces) reproduce but pull the score toward contact
+    skill, and are dropped.
   - The take model **is** a called-strike probability (median R² 0.991, held
     out), so a hitter-specific feature cannot help it. Adding the hot zone to
     the take model changes nothing.
