@@ -11,12 +11,15 @@ FINDINGS.md compares like with like. Three of the choices here are not obvious:
   it is kept out of model selection. (It is not a clean test -- earlier
   versions scored it -- so it is reported at the end as an out-of-regime
   evaluation, with 2027 reserved for a confirmatory test.)
-* **Sub-models are judged on conditional means, not pitch-level RMSE.** An
-  individual swing outcome is close to irreducible, so pitch-level error is
-  dominated by noise the model is not trying to predict. `bin_calibration`
-  scores what the model estimates -- the mean run value in a (location x count)
-  cell -- on the held-out season, against a count-only predictor fitted on the
-  same training seasons, and reports a calibration slope.
+* **Models are selected by paired held-out accuracy.** `paired_accuracy`
+  compares two variants' squared error on the same pitches. Outcome luck adds
+  the same amount to both, so the difference is the difference in how far
+  each model is from the true expected run value -- even though a swing's MSE
+  level is dominated by that luck. Calibration (`prediction_calibration`,
+  with a game-resampled interval) then checks the chosen model, since the
+  score uses each edge's magnitude; a miscalibrated winner is recalibrated,
+  never rejected. The player-metric checks are guardrails: they show the
+  score is stable and plausible, not that a model is right.
 * Zone% correlation is a first-class output. Salorio retired SOTO after finding
   Zone% explained ~23% of its variance, i.e. it was substantially measuring the
   pitches a hitter was thrown rather than his decisions. Reliability cannot
@@ -34,7 +37,8 @@ import xgboost as xgb
 
 from . import data as D
 from . import decision as DEC
-from .baselines import SEED, ActionModels, _dmatrix, fit_v1, predict_both, predict_chosen
+from .baselines import (SEED, ActionModels, _dmatrix, fit_v1, predict_both, predict_chosen,
+                        train_early_stopped)
 
 QUALIFY_PITCHES = 500
 
@@ -313,18 +317,15 @@ def outcome_diagnostics(held: pd.DataFrame, bins: int = 20) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index('season')
 
 
-WHIFF_PARAMS = {'objective': 'binary:logistic', 'eval_metric': 'auc', 'max_depth': 8,
-                'learning_rate': 0.05, 'tree_method': 'hist', 'random_state': SEED}
-WHIFF_ROUNDS = 300
+BINARY = {'objective': 'binary:logistic', 'eval_metric': 'logloss'}
 
 
-def whiff_auc(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
-              params: dict | None = None, rounds: int = WHIFF_ROUNDS) -> pd.DataFrame:
+def whiff_auc(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS) -> pd.DataFrame:
     """Held-out whiff prediction on swings: AUC and log loss against the base rate.
 
     Whether a swing misses is far more predictable than what it is worth, which
-    is the premise of decomposing the swing into events. Same folds as
-    everything else, so the figure is comparable to the harness rows.
+    is the premise of decomposing the swing into events. Same folds and the
+    same early-stopping learner as everything else.
     """
     from sklearn.metrics import log_loss, roc_auc_score
 
@@ -336,7 +337,7 @@ def whiff_auc(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
         if EXCLUDED_SEASON in (*train_seasons, valid):
             raise ValueError(f'{EXCLUDED_SEASON} is kept out of model selection; it has no place in a fold')
         tr, va = sw['season'].isin(train_seasons), sw['season'] == valid
-        booster = xgb.train(params or WHIFF_PARAMS, _dmatrix(sw[tr], features, whiff[tr]), rounds)
+        booster = train_early_stopped(sw[tr], features, whiff[tr], BINARY)
         p = booster.predict(_dmatrix(sw[va], features))
         base = log_loss(whiff[va], np.full(va.sum(), whiff[tr].mean()))
         ll = log_loss(whiff[va], p)
@@ -344,6 +345,134 @@ def whiff_auc(df: pd.DataFrame, features: list[str], folds=GENERIC_FOLDS,
                      'auc': roc_auc_score(whiff[va], p), 'logloss': ll,
                      'logloss_base_rate': base, 'improvement_%': (1 - ll / base) * 100})
     return pd.DataFrame(rows).set_index('season')
+
+
+# --------------------------------------------------------------------------
+# Accuracy -- the step that selects a model
+# --------------------------------------------------------------------------
+
+#: A pitch's identity across runs.
+PITCH_KEY = ['game_pk', 'at_bat_number', 'pitch_number']
+
+
+def _game_mean_interval(games: pd.Series, values: np.ndarray, draws: int = BOOT_DRAWS,
+                        seed: int = SEED) -> tuple[float, float]:
+    """95% interval for the mean of `values`, resampling whole games."""
+    g = pd.factorize(games)[0]
+    ng = g.max() + 1
+    total = np.bincount(g, weights=values, minlength=ng)
+    n = np.bincount(g, minlength=ng).astype(float)
+    w = np.random.default_rng(seed).multinomial(ng, np.full(ng, 1 / ng), size=draws)
+    lo, hi = np.percentile((w @ total) / (w @ n), [2.5, 97.5])
+    return float(lo), float(hi)
+
+
+def _q(action: str) -> str:
+    return 'q_swing' if action == 'swing' else 'q_take'
+
+
+def accuracy(run: FoldRun) -> pd.DataFrame:
+    """Held-out MSE per action against the fold's count-only predictor.
+
+    `diff` is model MSE minus count-only MSE (negative = the model is closer
+    to the truth), with a game-resampled interval. Per held-out season and
+    pooled. The level of swing MSE is dominated by outcome luck; the
+    difference is not, because that luck adds the same amount to both.
+    """
+    rows = []
+    for action in ('take', 'swing'):
+        g = run.held[run.held['swing'] == (action == 'swing')]
+        for season, s in [*g.groupby('season', observed=True), ('pooled', g)]:
+            y = s['target'].to_numpy()
+            se_m, se_c = (s[_q(action)].to_numpy() - y) ** 2, (s['count_only'].to_numpy() - y) ** 2
+            lo, hi = _game_mean_interval(s['game_pk'], se_m - se_c)
+            rows.append({'action': action, 'season': season, 'pitches': len(s),
+                         'mse': se_m.mean(), 'mse_count_only': se_c.mean(),
+                         'improvement_%': (1 - se_m.mean() / se_c.mean()) * 100,
+                         'diff': se_m.mean() - se_c.mean(), 'diff_lo': lo, 'diff_hi': hi})
+    return pd.DataFrame(rows).set_index(['action', 'season'])
+
+
+def paired_accuracy(run_a: FoldRun, run_b: FoldRun, labels=('a', 'b')) -> pd.DataFrame:
+    """Held-out MSE of two variants on the same pitches: the model-selection test.
+
+    Outcome noise adds the same amount to both models' squared error, so the
+    paired difference `mse_a - mse_b` is the difference in how far each model
+    is from the true expected run value. Negative = `a` is better. The
+    interval resamples games. Both runs must use the same folds, so their
+    targets are the same.
+    """
+    cols = PITCH_KEY + ['season', 'swing', 'target', 'q_take', 'q_swing']
+    m = run_a.held[cols].merge(run_b.held[cols], on=PITCH_KEY, suffixes=('_a', '_b'))
+    assert np.allclose(m['target_a'], m['target_b']), 'runs use different folds or targets'
+    la, lb = labels
+    rows = []
+    for action in ('take', 'swing'):
+        g = m[m['swing_a'] == (action == 'swing')]
+        for season, s in [*g.groupby('season_a', observed=True), ('pooled', g)]:
+            y = s['target_a'].to_numpy()
+            se_a = (s[f'{_q(action)}_a'].to_numpy() - y) ** 2
+            se_b = (s[f'{_q(action)}_b'].to_numpy() - y) ** 2
+            lo, hi = _game_mean_interval(s['game_pk'], se_a - se_b)
+            d = se_a.mean() - se_b.mean()
+            rows.append({'action': action, 'season': season, 'pitches': len(s),
+                         f'mse {la}': se_a.mean(), f'mse {lb}': se_b.mean(),
+                         'diff': d, 'diff_lo': lo, 'diff_hi': hi,
+                         'diff_%': d / se_b.mean() * 100,
+                         'verdict': (f'{la} better' if hi < 0 else f'{lb} better' if lo > 0 else 'tie')})
+    return pd.DataFrame(rows).set_index(['action', 'season'])
+
+
+def calibration_table(run: FoldRun) -> pd.DataFrame:
+    """Prediction-grouped calibration slope with interval, both actions, per season."""
+    return pd.concat({a: prediction_calibration(run.held, a)[['slope', 'slope_lo', 'slope_hi']]
+                      for a in ('take', 'swing')}, names=['action'])
+
+
+def swing_propensity(df: pd.DataFrame, features: list[str], folds) -> pd.Series:
+    """League `P(swing | pitch)` for every held-out pitch, fitted per fold on its
+    training seasons. Indexed by `PITCH_KEY`."""
+    need = [f for f in features if f != 'count']
+    d = df.dropna(subset=need)
+    parts = []
+    for train_seasons, valid in folds:
+        if EXCLUDED_SEASON in (*train_seasons, valid):
+            raise ValueError(f'{EXCLUDED_SEASON} is kept out of model selection; it has no place in a fold')
+        tr, va = d[d['season'].isin(train_seasons)], d[d['season'] == valid]
+        booster = train_early_stopped(tr, features, tr['swing'].astype(int), BINARY)
+        parts.append(pd.Series(booster.predict(_dmatrix(va, features)),
+                               index=pd.MultiIndex.from_frame(va[PITCH_KEY])))
+    return pd.concat(parts).rename('p_swing')
+
+
+PROPENSITY_BANDS = [0, 0.1, 0.3, 0.7, 0.9, 1.0]
+
+
+def propensity_calibration(run: FoldRun, p_swing: pd.Series, bins: int = 10) -> pd.DataFrame:
+    """Calibration within bands of league swing propensity, pooled over held-out seasons.
+
+    `Q_swing` is used on every pitch, including the many a hitter took, but it
+    can only be checked on pitches someone swung at. Swings at pitches the
+    league usually takes (low propensity) are the closest available evidence
+    that it holds up where it is extrapolated. Takes are checked the same way
+    at high propensity.
+    """
+    h = run.held.join(p_swing, on=PITCH_KEY)
+    h['band'] = pd.cut(h['p_swing'], PROPENSITY_BANDS, include_lowest=True)
+    rows = []
+    for action in ('swing', 'take'):
+        g = h[h['swing'] == (action == 'swing')]
+        for band, s in g.groupby('band', observed=True):
+            if len(s) < 2000:
+                continue
+            key = pd.qcut(s[_q(action)].rank(method='first'), bins, labels=False).to_numpy()
+            agg = s.groupby(key).agg(obs=('target', 'mean'), pred=(_q(action), 'mean'), n=('target', 'size'))
+            slope = float(np.polyfit(agg['pred'], agg['obs'], 1, w=np.sqrt(agg['n']))[0])
+            lo, hi = _slope_interval(s, key, 'target', _q(action), min_n=1)
+            rows.append({'action': action, 'league swing propensity': str(band), 'pitches': len(s),
+                         'mean pred': s[_q(action)].mean(), 'mean obs': s['target'].mean(),
+                         'slope': slope, 'slope_lo': lo, 'slope_hi': hi})
+    return pd.DataFrame(rows).set_index(['action', 'league swing propensity'])
 
 
 # --------------------------------------------------------------------------
@@ -535,12 +664,94 @@ def predictive_validity(df: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------
+# Guardrail differences with intervals
+# --------------------------------------------------------------------------
+
+def _wcorr(x, y, w):
+    mx, my = np.average(x, weights=w), np.average(y, weights=w)
+    cov = np.average((x - mx) * (y - my), weights=w)
+    return cov / np.sqrt(np.average((x - mx) ** 2, weights=w) * np.average((y - my) ** 2, weights=w))
+
+
+def _wresid(y, controls, w):
+    Z = np.column_stack([np.ones(len(y)), *controls])
+    sw = np.sqrt(w)
+    beta = np.linalg.lstsq(Z * sw[:, None], y * sw, rcond=None)[0]
+    return y - Z @ beta
+
+
+def _wpartial(y, x, controls, w):
+    return _wcorr(_wresid(y, controls, w), _wresid(x, controls, w), w)
+
+
+def metric_differences(run_a: FoldRun, run_b: FoldRun, value_col: str = DEC.DEFAULT_SCORE,
+                       labels=('a', 'b'), draws: int = BOOT_DRAWS, seed: int = SEED) -> pd.DataFrame:
+    """Paired differences in the guardrail checks, with hitter-resampled intervals.
+
+    The same statistics as `metric_checks` -- construct partials, YoY R^2,
+    Zone% |r|, next-season partial r -- for both variants on the same hitters,
+    and the 95% interval of `a - b` from resampling hitters. Guardrails, not
+    selectors: they flag a change for discussion, they do not choose a model.
+    """
+    key = ['season', 'batter']
+    sa = player_metric(run_a.held, value_col)[key + ['decision_value']]
+    sb = player_metric(run_b.held, value_col)[key + ['decision_value']]
+    h = run_a.held.assign(_in=D.in_rulebook_zone(run_a.held, ball_edge=True))
+    beh = pd.DataFrame({'chase': h[~h['_in']].groupby(key, observed=True)['swing'].mean(),
+                        'zone_swing': h[h['_in']].groupby(key, observed=True)['swing'].mean(),
+                        'zone_pct': h.groupby(key, observed=True)['_in'].mean()}).reset_index()
+    t = (sa.merge(sb, on=key, suffixes=('_a', '_b')).merge(beh, on=key)
+           .merge(_production(run_a.held), on=key).dropna())
+    seasons = sorted(t['season'].unique())
+    pairs = []
+    for s0, s1 in zip(seasons[:-1], seasons[1:]):
+        pairs.append(t[t['season'] == s0].merge(t[t['season'] == s1], on='batter', suffixes=('_t', '_t1')))
+    batters = pd.Index(t['batter'].unique())
+
+    def stats(weights: pd.Series) -> dict:
+        out = {}
+        w = t['batter'].map(weights).to_numpy()
+        for v in ('a', 'b'):
+            dv = t[f'decision_value_{v}'].to_numpy()
+            out[('chase | zone_swing', v)] = _wpartial(dv, t['chase'].to_numpy(), [t['zone_swing'].to_numpy()], w)
+            out[('zone_swing | chase', v)] = _wpartial(dv, t['zone_swing'].to_numpy(), [t['chase'].to_numpy()], w)
+            out[('Zone% |r|', v)] = np.mean([abs(_wcorr(g[f'decision_value_{v}'].to_numpy(), g['zone_pct'].to_numpy(),
+                                                        g['batter'].map(weights).to_numpy()))
+                                            for _, g in t.groupby('season')])
+            yoy, nxt = [], []
+            for p in pairs:
+                pw = p['batter'].map(weights).to_numpy()
+                yoy.append(_wcorr(p[f'decision_value_{v}_t'].to_numpy(), p[f'decision_value_{v}_t1'].to_numpy(), pw) ** 2)
+                nxt.append(_wpartial(p[f'decision_value_{v}_t'].to_numpy(), p['re_per_pa_t1'].to_numpy(),
+                                     [p['re_per_pa_t'].to_numpy()], pw))
+            out[('YoY R2 (mean)', v)] = np.mean(yoy)
+            out[('next-season r (partial)', v)] = np.mean(nxt)
+        return out
+
+    base = stats(pd.Series(1.0, index=batters))
+    rng = np.random.default_rng(seed)
+    boots = [stats(pd.Series(rng.multinomial(len(batters), np.full(len(batters), 1 / len(batters))).astype(float),
+                             index=batters)) for _ in range(draws)]
+    la, lb = labels
+    rows = []
+    for stat in ['chase | zone_swing', 'zone_swing | chase', 'YoY R2 (mean)', 'Zone% |r|', 'next-season r (partial)']:
+        d = [b[(stat, 'a')] - b[(stat, 'b')] for b in boots]
+        lo, hi = np.percentile(d, [2.5, 97.5])
+        rows.append({'check': stat, la: base[(stat, 'a')], lb: base[(stat, 'b')],
+                     'diff': base[(stat, 'a')] - base[(stat, 'b')], 'diff_lo': lo, 'diff_hi': hi})
+    return pd.DataFrame(rows).set_index('check')
+
+
+# --------------------------------------------------------------------------
 # One row for the scorecard
 # --------------------------------------------------------------------------
 
 #: The player-metric columns, in the order they should be weighed.
 SHOW = ['chase | zone_swing', 'zone_swing | chase', 'split-half r', 'YoY R2 (mean)',
         'Zone% |r|', 'next-season r (partial)']
+
+#: The model columns of the harness summary.
+MODEL_COLS = ['swing MSE vs count-only %', 'swing pred slope', 'take MSE vs count-only %', 'take pred slope']
 
 
 def metric_checks(df: pd.DataFrame, value_col: str) -> dict:
@@ -566,28 +777,25 @@ def metric_checks(df: pd.DataFrame, value_col: str) -> dict:
 def harness(run: FoldRun, label: str, value_col: str = DEC.DEFAULT_SCORE) -> dict:
     """Run every check on the held-out seasons and return the parts plus a summary row.
 
-    The summary orders the columns the way the checks should be weighed:
-    construct validity first, since it is the only one that tests whether the
-    metric measures swing decisions at all; then reliability as a floor; then
-    Zone% as a contamination veto. Predictive validity is reported last and is
-    not decisive -- it asks whether the metric predicts future *production*,
-    which is mostly hitting ability, so a clean decision metric can legitimately
-    score low on it. The sub-model columns follow: held-out bin-mean error
-    against the count-only predictor, and calibration slope.
+    The summary leads with the model columns -- held-out MSE improvement over
+    the count-only predictor and the prediction-grouped calibration slope, per
+    action -- then the player-metric checks. Only the model columns can say a
+    model estimates well; the player checks say the score is stable and
+    plausible, and serve as guardrails. To *choose* between two variants use
+    `paired_accuracy`, which tests the difference on the same pitches.
     """
     held = run.held
     assert set(held['season'].unique()) <= set(HELD_OUT), 'harness scores held-out seasons only'
     out = metric_checks(held, value_col)
-    cal = {a: bin_calibration(held, a) for a in ('take', 'swing')}
+    acc = accuracy(run)
+    cal = {a: prediction_calibration(held, a, ci=False) for a in ('take', 'swing')}
 
-    summary = {'variant': label, **out['summary']}
+    summary = {'variant': label}
     for a in ('swing', 'take'):
-        c = cal[a]
-        summary[f'{a} bin err / count-only'] = f"{c.err.mean():.4f} / {c.err_count_only.mean():.4f}"
-        summary[f'{a} signal recovered'] = round(c.signal_recovered.mean(), 3)
-        summary[f'{a} calib slope'] = round(c.slope.mean(), 3)
-    return {**out, 'summary': summary, 'calibration': cal,
-            'sub_models': rmse_vs_count_baseline(held)}
+        summary[f'{a} MSE vs count-only %'] = round(acc.loc[(a, 'pooled'), 'improvement_%'], 2)
+        summary[f'{a} pred slope'] = round(cal[a].slope.mean(), 3)
+    summary.update(out['summary'])
+    return {**out, 'summary': summary, 'accuracy': acc, 'calibration': cal}
 
 
 def in_sample_checks(run: FoldRun, label: str, value_col: str = DEC.DEFAULT_SCORE) -> dict:

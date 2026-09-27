@@ -58,13 +58,18 @@ class ActionModels:
     take_features: list[str]
     swing_features: list[str]
     rounds: dict | None = None               # early-stopped round counts, if any
+    calibration: dict | None = None          # {action: (a, b)}: q -> a + b*q, if recalibrated
 
     def features_for(self, action: str) -> list[str]:
         return self.take_features if action == 'take' else self.swing_features
 
     def predict(self, df: pd.DataFrame, action: str) -> np.ndarray:
         booster = self.take if action == 'take' else self.swing
-        return booster.predict(_dmatrix(df, self.features_for(action)))
+        q = booster.predict(_dmatrix(df, self.features_for(action)))
+        if self.calibration and action in self.calibration:
+            a, b = self.calibration[action]
+            q = a + b * q
+        return q
 
 
 def _dmatrix(df: pd.DataFrame, features: list[str], label=None) -> xgb.DMatrix:
@@ -124,8 +129,13 @@ def stopping_mask(frame: pd.DataFrame, fraction: float = STOP_FRACTION,
 
 
 def train_early_stopped(frame: pd.DataFrame, features: list[str], label,
-                        params: dict) -> xgb.Booster:
-    """Fit under `LEARNER`, stopping on held-back games; keep the best round only."""
+                        params: dict, return_stop: bool = False):
+    """Fit under `LEARNER`, stopping on held-back games; keep the best round only.
+
+    With `return_stop=True` also returns the boolean mask of the held-back
+    rows, which the fit never trained on -- the one place inside a fold where
+    a calibration map can be estimated without touching the held-out season.
+    """
     label = np.asarray(label)
     stop = stopping_mask(frame)
     booster = xgb.train(
@@ -133,36 +143,58 @@ def train_early_stopped(frame: pd.DataFrame, features: list[str], label,
         _dmatrix(frame[~stop], features, label[~stop]), MAX_ROUNDS,
         evals=[(_dmatrix(frame[stop], features, label[stop]), 'stop')],
         early_stopping_rounds=PATIENCE, verbose_eval=False)
-    return booster[: booster.best_iteration + 1]
+    booster = booster[: booster.best_iteration + 1]
+    return (booster, stop) if return_stop else booster
+
+
+def linear_calibration(pred: np.ndarray, target: np.ndarray) -> tuple[float, float]:
+    """(a, b) of the least-squares map `target ~ a + b * pred`."""
+    b, a = np.polyfit(pred, target, 1)
+    return float(a), float(b)
 
 
 REGRESSION = {'objective': 'reg:squarederror', 'eval_metric': 'rmse'}
 
 
-def fit_take(train: pd.DataFrame, features: list[str], target: str = 'target') -> xgb.Booster:
+def fit_take(train: pd.DataFrame, features: list[str], target: str = 'target',
+             return_stop: bool = False):
     """The take model under `LEARNER`. Both Track B twins call this, so they
     share one `Q_take`."""
     take = train[~train['swing']]
-    return train_early_stopped(take, features, take[target], REGRESSION)
+    return train_early_stopped(take, features, take[target], REGRESSION, return_stop)
 
 
 def fit_direct(train: pd.DataFrame, features: list[str], target: str = 'target',
-               swing_only: bool = True, **_) -> ActionModels:
-    """The direct twin: v1's two-model design, under `LEARNER`.
+               swing_only: bool = True, recalibrate: bool = False, **_) -> ActionModels:
+    """The two-model design under `LEARNER`: the fit every version now uses.
 
     Same routing as `fit_v1` -- hitter features to the swing model only unless
     `swing_only=False` -- but rounds set by early stopping rather than fixed.
+
+    `recalibrate=True` fits a linear map `q -> a + b*q` per action on the
+    early-stopping games, which neither model trained on, and applies it in
+    `.predict`. It is the repair step of the model-selection rule: used only
+    when a selected model's calibration slope excludes 1.
     """
     features = list(features)
     take_features = ([f for f in features if f not in SWING_ONLY_FEATURES]
                      if swing_only else features)
-    take = fit_take(train, take_features, target)
-    sw = train[train['swing']]
-    swing = train_early_stopped(sw, features, sw[target], REGRESSION)
+    tk, sw = train[~train['swing']], train[train['swing']]
+    take, take_stop = fit_take(train, take_features, target, return_stop=True)
+    swing, swing_stop = train_early_stopped(sw, features, sw[target], REGRESSION, return_stop=True)
+    calibration = None
+    if recalibrate:
+        calibration = {
+            'take': linear_calibration(take.predict(_dmatrix(tk[take_stop], take_features)),
+                                       tk[target].to_numpy()[take_stop]),
+            'swing': linear_calibration(swing.predict(_dmatrix(sw[swing_stop], features)),
+                                        sw[target].to_numpy()[swing_stop]),
+        }
     return ActionModels(take=take, swing=swing, take_features=take_features,
                         swing_features=features,
                         rounds={'take': take.num_boosted_rounds(),
-                                'swing': swing.num_boosted_rounds()})
+                                'swing': swing.num_boosted_rounds()},
+                        calibration=calibration)
 
 
 def predict_chosen(df: pd.DataFrame, models: ActionModels,
