@@ -399,7 +399,9 @@ def paired_accuracy(run_a: FoldRun, run_b: FoldRun, labels=('a', 'b')) -> pd.Dat
     Outcome noise adds the same amount to both models' squared error, so the
     paired difference `mse_a - mse_b` is the difference in how far each model
     is from the true expected run value. Negative = `a` is better. The
-    interval resamples games. Both runs must use the same folds, so their
+    interval resamples games. `diff_%` expresses the difference (and its
+    interval) as a percentage of `b`'s MSE, which is easier to read than
+    squared runs. Both runs must use the same folds, so their
     targets are the same.
     """
     cols = PITCH_KEY + ['season', 'swing', 'target', 'q_take', 'q_swing']
@@ -419,6 +421,7 @@ def paired_accuracy(run_a: FoldRun, run_b: FoldRun, labels=('a', 'b')) -> pd.Dat
                          f'mse {la}': se_a.mean(), f'mse {lb}': se_b.mean(),
                          'diff': d, 'diff_lo': lo, 'diff_hi': hi,
                          'diff_%': d / se_b.mean() * 100,
+                         'diff_%_lo': lo / se_b.mean() * 100, 'diff_%_hi': hi / se_b.mean() * 100,
                          'verdict': (f'{la} better' if hi < 0 else f'{lb} better' if lo > 0 else 'tie')})
     return pd.DataFrame(rows).set_index(['action', 'season'])
 
