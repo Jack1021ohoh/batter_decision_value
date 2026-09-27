@@ -8,7 +8,9 @@ running it.
 folds and each of 2023, 2024 and 2025 is scored by a model that never saw it;
 year-over-year and next-season checks use the 2023→24 and 2024→25 pairs.
 Generic variants train from 2021; whenever a personalized variant is in a
-comparison, every row trains from 2022 and uses 2021 only as prior data.
+comparison, every row trains from 2022 and uses 2021 only as prior data. Every
+version uses one learner: XGBoost, depth 7, learning rate 0.05, rounds set by
+early stopping on 10% of training games.
 
 **2026 is not an untouched test.** It is excluded from everything here, but
 earlier versions of the project scored it: they printed a 2026 leaderboard and
@@ -20,42 +22,60 @@ reserved for 2027, a season no version has seen.
 
 ---
 
+## How models are chosen
+
+The player-metric checks — construct partials, split-half, YoY, Zone% and
+next-season — show whether a score is stable and plausible. They cannot show a
+model estimates well: a score that tracked batting average would pass every
+reliability check, and a feature can raise next-season validity simply by
+importing hitting ability. So models are chosen by a rule fixed before the
+re-runs:
+
+1. **Accuracy decides.** Held-out squared error of two variants on the same
+   pitches, with a 95% interval from resampling games. A swing's error is
+   mostly outcome luck, but the luck adds the same amount to both variants, so
+   the paired difference is the difference in how far each is from the true
+   expected run value. A variant wins if it is better on at least one action
+   and worse on neither; an interval spanning 0 is a tie, and the simpler model
+   stays.
+2. **Calibration checks the winner** — observed against predicted, grouped by
+   predicted value, with an interval — because the decision score uses the size
+   of each value, not only its sign.
+3. **Guardrails.** The player checks, with hitter-resampled intervals on each
+   difference, flag a change for discussion and never choose a model.
+
+The metric choice is the exception: there the model is held fixed, so accuracy
+cannot differ and the player checks are the only evidence.
+
+---
+
 ## Results
 
-Two readings, and they answer different questions.
+The score is reported two ways, each chosen by accuracy (`v4_decomposition.ipynb`):
 
-**As each version was designed** — v1 and v2 score the value of the action
-taken, because that is their design. v2 is compared with v1 refit on the same
-(personalized) folds.
+| output | question | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
+|---|---|---|---|---|---|---|---|
+| **generic** | a good decision for a typical hitter? | −0.914 | 0.706 | 0.816 | 0.583 | 0.270 | 0.100 |
+| **personalized** | a good decision for *this* hitter? | −0.862 | 0.582 | 0.847 | 0.615 | 0.184 | 0.173 |
 
-| | chase\|zs | zs\|chase | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
+Both value a swing by decomposing it — `P(whiff)·RE(whiff) + P(foul)·RE(foul) +
+P(in play)·E[value | in play]` — on the full pitch frame, and score it with
+`signed_edge`. The personalized model adds the hitter's hot zone to the in-play
+value and his whiff and foul tendencies to the outcome classifier. It is the
+most accurate model found (swing MSE 2.09% below a count-only predictor, against
+1.95% generic); its score is more reliable, less contaminated and more
+predictive, and tracks plate discipline less — by design. The two correlate
+0.939 across hitter-seasons.
+
+**v1 and v2 as designed** (value of the action taken, v2's folds):
+
+| | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
 |---|---|---|---|---|---|---|
-| v1 | −0.884 | 0.673 | 0.758 | 0.526 | 0.082 | 0.135 |
-| v1, v2's folds | −0.883 | 0.669 | 0.757 | 0.526 | 0.081 | 0.137 |
-| v2 | −0.792 | 0.535 | 0.792 | 0.535 | 0.031 | 0.135 |
+| v1 | −0.890 | 0.678 | 0.763 | 0.538 | 0.116 | 0.129 |
+| v2 | −0.803 | 0.548 | 0.794 | 0.540 | 0.058 | 0.129 |
 
-**With the metric held fixed at `signed_edge`**, so only the feature set
-varies and each difference is attributable — this is the comparison that
-supports any claim about the patch. Full table in "The feature ladder" below.
-
-| | chase\|zs | zs\|chase | split-half r | YoY R² | Zone% \|r\| | next-season partial r |
-|---|---|---|---|---|---|---|
-| v1 features | −0.920 | 0.699 | 0.818 | 0.594 | 0.300 | 0.082 |
-| v3 features + hot zone | −0.895 | 0.677 | **0.838** | **0.624** | **0.184** | **0.154** |
-
-The patch **nearly doubles** next-season predictive validity, cuts pitch-mix
-contamination by 39% and raises reliability. It costs some construct validity
-— whether the metric punishes chasing *and* rewards attacking hittable
-pitches, each holding the other fixed — which slips by 0.02–0.03 on each half.
-
-In-sample scoring would have flattered v3 only modestly: YoY R² 0.643 against
-0.624 held out, Zone% 0.223 against 0.184.
-
-**The current model** is the same design with the learner fixed: early
-stopping instead of v1's fixed settings raises next-season validity to 0.167
-and lowers Zone% to 0.169 (split-half 0.844, YoY 0.629, construct −0.885 /
-+0.662). Decomposing the swing into whiff / foul / in play was tested against
-it and ties — see "Track B" below.
+v2's hull does not make a better model: swings 0.018% better, takes 0.27% worse
+(it feeds a contact feature to a model of an umpire's call).
 
 ---
 
@@ -76,257 +96,153 @@ On v1's features, generic folds:
 
 | score | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
 |---|---|---|---|---|---|---|
-| `chosen_value` | −0.884 | 0.673 | 0.758 | 0.526 | 0.082 | 0.135 |
-| `signed_edge` | −0.921 | 0.701 | 0.819 | 0.594 | 0.301 | 0.085 |
-| `regret` | −0.825 | 0.527 | 0.791 | 0.572 | 0.504 | 0.027 |
-| `close_weighted` | −0.717 | 0.830 | 0.641 | 0.345 | 0.050 | 0.098 |
-| `correct_decision` | **−0.954** | **0.914** | **0.825** | 0.586 | 0.241 | 0.113 |
+| `chosen_value` | −0.889 | 0.681 | 0.765 | 0.537 | 0.124 | 0.126 |
+| `signed_edge` | −0.920 | 0.700 | 0.819 | 0.596 | 0.299 | 0.085 |
+| `regret` | −0.831 | 0.530 | 0.795 | 0.581 | 0.504 | 0.028 |
+| `close_weighted` | −0.701 | 0.802 | 0.606 | 0.317 | 0.045 | 0.101 |
+| `correct_decision` | **−0.953** | **0.906** | **0.826** | 0.586 | 0.250 | 0.115 |
 
 **By the criterion fixed before the numbers — construct validity first —
-`correct_decision` wins**, and still does with the hot zone added (−0.964 /
-+0.931). As `close_weighted`'s kernel widens it converges on `correct_decision`
-(correlation 0.997 at scale 0.8), improving the whole way. The run-value
-magnitude is what carries the pitch-mix bias: `signed_edge` pays about eight
-times more per pitch for an obvious take (+0.082 runs) than for getting a
-genuinely close call right (+0.010).
+`correct_decision` wins**, and still does with the hot zone added (−0.957 /
++0.911). As `close_weighted`'s kernel widens it converges on `correct_decision`
+(correlation 0.997 at scale 0.8). The run-value magnitude carries the pitch-mix
+bias: `signed_edge` pays about eight times more per pitch for an obvious take
+(+0.087 runs) than for getting a genuinely close call right (+0.011).
 
 **`signed_edge` is selected anyway, as a trade.** It keeps the run-value
-magnitude, which is what every published metric uses — SwRV, SOTO, Nestico's
-Decision Value, Creally's wDV, EAGLE all report run value per 100 pitches. A
-sign-based score treats a razor-thin call and an obvious blunder alike, and it
-barely registers a feature that changes how much a swing is worth without
-flipping the decision. With the hot zone, `signed_edge` is the more reliable of
-the two (split-half 0.841 against 0.828, YoY R² 0.629 against 0.583), less
-contaminated on raw Zone% (0.185 against 0.215) and level on next-season
-validity (0.157 against 0.150).
+magnitude every published metric uses — SwRV, SOTO, Nestico's Decision Value,
+Creally's wDV, EAGLE all report run value per 100 pitches. A sign-based score
+treats a razor-thin call and an obvious blunder alike and barely registers a
+feature that changes how much a swing is worth without flipping the decision.
 
 ### The contamination problem
 
-Magnitude-weighted scores can be contaminated by pitch mix, because the
-magnitude varies with the pitches a hitter is thrown. Measured on the final
-model (v3), with Zone% correlated against the score and something held fixed:
+Magnitude-weighted scores can be contaminated by pitch mix. Zone% against the
+score, with something held fixed (`v3.ipynb`; the v3 model is the direct
+regression on the full pitch frame with the hot zone):
 
-| score | raw | \| correct-decision rate | \| chase, zone-swing | \| production |
-|---|---|---|---|---|
-| `chosen_value` | −0.180 | −0.417 | −0.496 | −0.052 |
-| `signed_edge` | 0.184 | −0.006 | −0.236 | 0.311 |
-| `regret` | 0.547 | 0.603 | 0.527 | 0.585 |
-| `correct_decision` | 0.213 | *(circular)* | 0.066 | 0.307 |
+| model | score | raw | \| correct-decision rate | \| chase, zone-swing | \| production |
+|---|---|---|---|---|---|
+| v1 features | `signed_edge` | 0.299 | 0.172 | −0.006 | 0.396 |
+| v1 features | `correct_decision` | 0.250 | *(circular)* | 0.160 | 0.337 |
+| v3 | `chosen_value` | −0.165 | −0.421 | −0.458 | −0.037 |
+| v3 | `signed_edge` | 0.172 | −0.072 | −0.252 | 0.301 |
+| v3 | `regret` | 0.555 | 0.599 | 0.533 | 0.591 |
+| v3 | `correct_decision` | 0.230 | *(circular)* | 0.039 | 0.328 |
 
 **The answer depends on the control, so no control settles it.** Each is a
-screen, not proof: the correct-decision rate comes from the same model's Δ (and
-*is* `correct_decision`), and chase and zone-swing rates vary with how hard the
-pitches a hitter sees are. The only test with ground truth is a known-policy
-simulation.
+screen: the correct-decision rate comes from the same model's Δ (and *is*
+`correct_decision`), and chase and zone-swing rates vary with how hard the
+pitches a hitter sees are.
 
 **The raw Zone% test is lenient.** Better hitters are thrown fewer strikes
-(corr(Zone%, production) = −0.225), so a score that tracks hitter quality picks
-up a negative Zone% pull. Holding production fixed raises every score's
-correlation — `signed_edge`'s from 0.184 to 0.311.
+(corr(Zone%, production) = −0.225), so holding production fixed raises every
+score's correlation — `signed_edge`'s from 0.172 to 0.301.
 
-**`correct_decision` is cleaner on v1's features but not on v3's.** On v1's
-features `signed_edge` is the more contaminated (raw 0.301 against 0.241;
-0.398 against 0.326 holding production fixed). The hot zone closes the gap.
+**`correct_decision` is cleaner on v1's features but not on v3's**; the hot zone
+closes the gap.
 
-**Rescaling cannot fix it.** Z-score, OPS+-style ratio and percentile rank
-correlate 0.9996 or more with one another and give the same contamination —
-they are monotone transforms of the same per-hitter mean.
+**Rescaling cannot fix it** — z-score, OPS+-style ratio and percentile rank
+correlate 0.9997 or more.
 
 **Three attempts to remove it at the source failed:**
 
-1. **`regret`** — one-sided, so obvious correct decisions cannot inflate it.
-   Its largest losses are hittable pitches taken, so more strikes mean more
-   regret: the worst contamination of any candidate (0.504 on v1's features).
-2. **Departure weighting** — `(swung − P(league swings)) × edge`, so a pitch
-   everyone handles the same way contributes ~0 to everyone. The mean payout is
-   indeed ~0 in every region, and it is the most reliable score tested
-   (split-half 0.860, YoY R² 0.658). But raw Zone% rises to 0.323, past the
-   veto, and next-season validity falls to 0.098.
+1. **`regret`** — its largest losses are hittable pitches taken, so more strikes
+   mean more regret: the worst contamination of any candidate (0.504).
+2. **Departure weighting** — `(swung − P(league swings)) × edge`. The mean
+   payout is ~0 in every region and it is the most reliable score tested
+   (split-half 0.864, YoY 0.652), but raw Zone% rises to 0.327 and next-season
+   validity falls to 0.100.
 3. **Opportunity standardization** — a hitter's mean within region × count
-   strata (with or without pitch family), reweighted to the league mix. It
-   raises raw Zone% (0.184 → 0.236 / 0.217) and the production-held figure
-   (0.311 → 0.359 / 0.343), and costs construct validity; only under the
-   behaviour control does it move toward zero. So the contamination survives
-   *within* these strata: the mix across them is not what drives it. That does
-   not show pitch mix plays no role — mix at a finer grain, such as location
-   within a region or pitch quality, is untested.
+   strata (± pitch family), reweighted to the league mix. It raises raw Zone%
+   (0.172 → 0.224 / 0.204) and the production-held figure (0.301 → 0.350 /
+   0.333) and costs construct validity; only the behaviour-held figure moves
+   toward zero. The mix *across* these strata is not what drives the
+   contamination; mix at a finer grain is untested.
 
 The contamination is **a real, unsolved limitation that the published metrics
-share** — it is what retired SOTO. `signed_edge` is chosen despite it, not
-because it escapes it.
+share** — it is what retired SOTO.
 
 ---
 
-## The feature ladder, at a fixed metric
+## The feature ladder
 
-Only the feature set varies; pipeline, learner, hyperparameters, folds and
-metric are held constant. Personalized folds throughout.
+Personalized folds, `signed_edge`, each rung a complete feature set (the hull
+and the surface estimate the same thing, so they are never combined). Paired
+accuracy is each rung against the one it replaces; negative = better.
 
-Each row is a complete feature set, not an increment on the row above. The
-binary hull and the continuous surface estimate the same thing — a hitter's hot
-zone — so they are never combined. Hitter features go to the swing model only,
-except in the last row.
+| rung | swing MSE (95% interval) | take MSE | chase\|zs | zs\|chase | YoY R² | Zone% \|r\| | next-season |
+|---|---|---|---|---|---|---|---|
+| location, count (v1) | — | — | −0.921 | 0.703 | 0.594 | 0.298 | 0.084 |
+| + hull (v2), vs v1 | −0.023% (−0.037, −0.012) | tie | −0.915 | 0.692 | 0.589 | 0.282 | 0.087 |
+| full pitch frame, vs v1 | −0.264% (−0.294, −0.237) | −8.7% | −0.916 | 0.711 | 0.584 | 0.269 | 0.104 |
+| + hot-zone surface, vs frame | −0.062% (−0.090, −0.039) | tie | −0.885 | 0.662 | 0.629 | 0.169 | 0.167 |
+| surface in both models, vs swing-only | tie | +0.35% | −0.882 | 0.657 | 0.630 | 0.163 | 0.168 |
 
-| feature set | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
-|---|---|---|---|---|---|---|
-| location, count | −0.920 | 0.699 | 0.818 | 0.594 | 0.300 | 0.082 |
-| location, count, hull | −0.913 | 0.688 | 0.819 | 0.589 | 0.282 | 0.086 |
-| batter frame, handedness, pitch chars | **−0.923** | **0.723** | 0.817 | 0.590 | 0.274 | 0.107 |
-| … plus hot-zone surface | −0.895 | 0.677 | 0.838 | 0.624 | 0.184 | 0.154 |
-| … same, surface in both models | −0.892 | 0.671 | **0.841** | **0.625** | **0.176** | **0.157** |
+**Every pitch-frame group makes a better model** (generic folds): the batter
+frame cuts take MSE 7.7% and swing MSE 0.12%, handedness takes 0.7%, pitch
+characteristics takes 0.5% and swings 0.15%. A location-binned check had
+suggested pitch characteristics added nothing to the swing model — it could not
+see them, because it averages over everything within a location cell.
 
-The hull contributes nothing. The pitch frame lifts next-season validity
-(0.082 → 0.107) with construct validity flat or better. The hot-zone surface
-supplies the rest of the gain, and all of the construct cost. Giving the surface
-to the take model as well changes nothing (within 0.008 on every column).
+**The hot zone belongs in the swing model only.** It improves the swing model
+three times as much as the hull; in the take model it makes that model worse.
 
-Under `chosen_value` the same surface is far more dramatic — next-season
-0.150 → **0.289** — but construct validity collapses (−0.878 / +0.657 →
-−0.625 / +0.419), the signature of a score drifting from "did he decide well"
-toward "is he a good hitter".
+**The guardrails move with the surface**: YoY, Zone% and next-season improve,
+while construct validity slips (−0.916 / +0.711 → −0.885 / +0.662), all with
+intervals excluding zero. A better estimate of what a swing is worth to this
+hitter partly moves the score toward "is he a good hitter". Under
+`chosen_value` the same surface collapses construct validity (−0.602 / +0.403).
 
 ---
 
-## The swing model: judge it on conditional means
+## The swing and take models
 
-The swing model estimates a conditional mean, not individual outcomes, and
-individual outcomes are nearly irreducible — the same pitch in the same count
-yields a home run or a groundout. On pitch-level RMSE it beats a count-only
-lookup by only 0.80% with location and count, 0.88% with the full pitch frame.
-That is the wrong instrument.
+**Both beat a count-only predictor decisively** (v1's features, generic
+folds): take MSE 67% lower, swing MSE 1.6% lower, every interval far from zero.
+The swing figure is small because most of a swing's squared error is outcome
+luck, not because the model learns little; paired comparisons cancel that luck.
 
-Scored instead on held-out (location × count) bin means — 12 × 12 locations in
-the batter frame, bins with at least 200 swings — against a count-only
-predictor fitted on the same training seasons:
+**v1's fixed settings under-trained the swing model.** With learning rate 0.01
+and 200 rounds its predictions were compressed — calibration slope, grouped by
+predicted value, 1.18–1.26 with every interval above 1. Early stopping brings it
+to 0.99–1.09 (`v1_baseline.ipynb`). Hyperparameters are pipeline, not design, so
+every version uses the early-stopping learner.
 
-| features | error | count-only error | noise floor | share of between-bin structure recovered | slope |
-|---|---|---|---|---|---|
-| location, count | 0.0199–0.0214 | 0.0345–0.0378 | ~0.016 | 83–85% | 1.21–1.33 |
-| + batter frame | 0.0175–0.0195 | 0.0345–0.0378 | ~0.016 | 90–94% | 1.19–1.29 |
+**Calibration is close but not exact, and two repairs failed.** Across the
+final models, take slopes are 0.99–1.00 and swing slopes 0.94–1.09, furthest
+from 1 in 2023, whose fold trains on one season. A linear map fitted on
+early-stopping games left swing MSE unchanged and swing calibration worse; one
+fitted on the previous held-out season over-corrected and made MSE worse. The
+residual varies from fold to fold, so neither map could predict it; the models
+are used as fitted.
 
-(Ranges across the three held-out seasons; generic folds.)
+**Where `Q_swing` is extrapolated it is slightly too generous.** It can only be
+checked on pitches someone swung at. On swings at pitches the league swings at
+less than 10% of the time, the final models predict about −0.060 runs against
+−0.067 observed, so the most obvious chases are penalised slightly less than
+they should be.
 
-What this check can and cannot say:
-
-- **It tests the location-and-count pattern, nothing finer.** Pitches are
-  grouped by where they were and the count, so it asks whether the model knows
-  how much better a swing is over the middle than at the edge, and how that
-  changes with the count. Anything that varies *within* a cell — pitch type,
-  velocity, the hitter's hot zone — is averaged away, so it cannot credit
-  pitch characteristics or personalization.
-- **Individual bins are imprecise.** Each observed bin mean carries ~0.016
-  runs of sampling noise, most of the model's remaining error. Which specific
-  bins are wrong cannot be told; the "share recovered" depends on that noise
-  estimate and is for comparing variants, not a ceiling.
-- **The slope is the more robust figure.** It is fitted across ~600 bins, and
-  noise in the observed means widens its uncertainty without biasing it. It
-  is above 1 in all three held-out seasons and at every feature set.
-
-**That slope was undertraining, not a limit of the data** (Track B, below).
-With 95% intervals from resampling games, and a second check grouping pitches
-by *predicted* value so it covers the whole model: under v1's settings
-(learning rate 0.01, 200 rounds) the predicted-value slope is 1.21–1.26, every
-interval well above 1. With early stopping it is 1.01–1.05, and its interval
-contains 1 in 2024 and 2025. The swing model's predictions were too compressed
-because the boosting stopped short, and the v1–v3 figures above carry that.
-
-**Withdrawn:** the earlier "only 1.9% of variance is learnable" and "recovers
-90.6% / 94.5% of the learnable signal". Both were in-sample r² over one binning;
-the 1.9% was the between-cell variance of that grid, not a ceiling on what any
-feature can explain.
+**The take model is a called-strike probability.** On held-out 2025, regressing
+its predictions on a fitted `P(called strike)` within each count gives median R²
+0.991, with slopes matching `RE(CS, c) − RE(ball, c)` — on 3-2, −0.612 against
+an expected −0.614.
 
 **The events are predictable even though the run value is not.** Whiff
-probability predicts at **AUC 0.77** on held-out seasons, with velocity and
-movement adding clearly over location and count in every season (AUC
-0.73 → 0.77; log loss 14.5–14.9% → 17.7–18.3% better than the base rate). That
-was the case for modelling whiff / foul / in-play separately — and Track B
-found it does not change the metric.
-
----
-
-## Track B: event decomposition ties the direct model
-
-`notebooks/v4_decomposition.ipynb`. The swing is modelled as what it produces,
-
-```
-Q_swing(s) = P(whiff|s)·RE(whiff, c) + P(foul|s)·RE(foul, c) + P(in play|s)·E[run value | in play, s]
-```
-
-against a **direct twin** that shares everything else — score, pitch
-features, hitter priors, folds, learner, and the take model itself (asserted
-identical). Every sub-model in both twins is fitted the same way: learning rate
-0.05, rounds by early stopping on 10% of training games. Personalized folds,
-held out.
-
-| | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
-|---|---|---|---|---|---|---|
-| direct, full pitch frame | −0.916 | 0.711 | 0.815 | 0.584 | 0.269 | 0.104 |
-| decomposed, full pitch frame | −0.914 | 0.706 | 0.816 | 0.583 | 0.270 | 0.100 |
-| direct + hot zone | −0.885 | 0.662 | 0.844 | 0.629 | 0.169 | 0.167 |
-| decomposed + hot zone | −0.877 | 0.648 | 0.845 | 0.632 | 0.162 | 0.171 |
-
-**A tie, generic and personalized.** No win condition fixed in advance is met.
-The twins recommend a different action on 2.3% of pitches and their
-hitter-season values correlate 0.998. The decomposed classifier is accurate and
-calibrated (whiff AUC 0.764–0.770, per-class slopes 0.96–1.02), but a direct
-regression with the same features and enough rounds already captures what it
-knows. By the rule set before the numbers, **the direct model stays.**
-
-**The decomposition's one advantage is stability.** Refit on resampled games,
-its Δ varies less (SD 0.0070 against 0.0086 runs) and fewer pitches change
-recommended action (5.7% against 6.5%). Nearly all of that instability, in
-both twins, sits on the 11% of pitches whose Δ is within 0.02 runs of zero.
-Stability was not a win condition, so it does not change the verdict.
-
-**Contact priors reproduce but corrupt the score.** A hitter's whiff-rate
-surface predicts the next season's at r ≈ 0.66–0.67 (foul rate 0.43–0.46), and
-it improves outcome prediction (whiff AUC → 0.777–0.782). But given to the
-decomposed classifier it moves the score toward "is he a good contact hitter":
-zone-swing | chase 0.648 → 0.582, YoY 0.632 → 0.615, Zone% 0.162 → 0.184. A
-hitter who rarely whiffs gets a higher `Q_swing` everywhere, whatever his
-decisions. Dropped.
-
-**The learner is the real gain.** Early stopping alone, on the Track A model
-(full pitch frame + hot zone, swing-only), raises next-season validity 0.154 →
-0.167 and cuts Zone% contamination 0.184 → 0.169, at a small construct cost
-(−0.895 / +0.677 → −0.885 / +0.662). That is **the current model.**
-
-**Benchmarks.** O-Swing% is heavily contaminated (Zone% |r| 0.421) and weakly
-predictive (0.077). Z-Swing% − O-Swing% is a stronger baseline than expected:
-less contaminated than the current model (0.114 against 0.169) and nearly as
-predictive (0.146 against 0.167), though less reliable (YoY 0.557 against
-0.629). It is the benchmark to beat on contamination.
-
----
-
-## The take model is a called-strike probability
-
-A take ends three ways and the target is the league run value of
-`(outcome, count)`, so given the count the only thing location can say is
-whether it will be called a strike.
-
-On held-out 2025, regressing the take model's predictions on a fitted
-`P(called strike)` within each count gives **median R² 0.991**, with slopes
-matching `RE(CS, c) − RE(ball, c)` to within a few thousandths — on 3-2,
-−0.611 against an expected −0.614. It is learning an umpire, not a run-value
-surface. The explicit structural form can be substituted for interpretability
-at no cost in accuracy, and a hitter feature cannot help it: adding the hot
-zone to the take model changes nothing.
+probability predicts at AUC 0.77 held out, with velocity and movement adding
+clearly over location and count (0.73 → 0.77; log loss 14.6–14.9% → 17.7–18.3%
+better than the base rate).
 
 ---
 
 ## Personalization is real, and easy to measure wrongly
 
 Hitters cannot cover the whole zone, and they do not cover the same part of it:
+at the **same location** they differ by **1.72 mph** of expected exit velocity —
+about **0.6× the entire league-wide location effect** (87.3–90.2 mph) — and the
+modal "best cell" holds only **21%** of hitter-seasons.
 
-- at the **same location**, hitters differ by **1.72 mph** of expected exit
-  velocity — about **0.6× the entire league-wide location effect** (87.3–90.2
-  mph across the zone)
-- the modal "best cell" holds only **21%** of hitter-seasons, with real mass
-  across five or six
-
-**Estimator matters enormously.** A per-hitter hot-zone surface reproduces
-itself year over year at:
+**Estimator matters enormously** (EDA §6):
 
 | estimator | YoY r |
 |---|---|
@@ -335,31 +251,53 @@ itself year over year at:
 | same, predicting from a two-season prior | 0.67–0.69 (one-season prior, same hitters: 0.63–0.66) |
 
 Hitter surfaces are nearly three-dimensional — 3 principal components explain
-89% of between-hitter variation, 5 explain 96% — which is why pooling recovers
-so much.
-
-The binary convex hull is a poor estimator of the same signal and contributes
-nothing to the metric: 95% of the pitches it flags are in the strike zone, so it
-acts as a coarse location feature.
+89% of between-hitter variation — which is why pooling recovers so much.
 
 **And the metric has to be able to see it.** The surface moves `Q_swing` by a
-quarter of its own standard deviation but flips the *recommended action* on only
-**1.6%** of pitches. A sign-based score therefore barely registers it
-(personalized folds, batter-frame location and count, without → with the
-surface):
+quarter of its own standard deviation but flips the recommended action on only
+**2.0%** of pitches. With the model held fixed (batter-frame location and
+count, without → with the surface):
 
-| metric | split-half | YoY R² | next-season r | construct (chase\|zs / zs\|chase) |
+| metric | split-half | YoY R² | next-season | construct (chase\|zs / zs\|chase) |
 |---|---|---|---|---|
-| value of action taken | 0.752 → **0.901** | 0.523 → **0.699** | 0.145 → **0.286** | −0.884 / +0.671 → −0.620 / +0.418 |
-| chosen minus counterfactual | 0.820 → 0.841 | 0.594 → 0.629 | 0.103 → 0.157 | −0.925 / +0.720 → −0.895 / +0.670 |
-| correct decision (±1) | 0.827 → 0.828 | 0.580 → 0.583 | 0.137 → 0.150 | −0.965 / +0.933 → −0.964 / +0.931 |
-
-Under the first, construct validity collapses — the feature pulls the score
-toward measuring hitting ability, which is also why it predicts production so
-much better. Under the second, reliability, contamination (Zone% 0.279 → 0.185)
-and usefulness all improve, for a smaller construct cost.
+| value of action taken | 0.759 → **0.913** | 0.529 → **0.713** | 0.139 → **0.292** | −0.890 / +0.678 → −0.601 / +0.404 |
+| chosen minus counterfactual | 0.822 → 0.846 | 0.592 → 0.635 | 0.103 → 0.165 | −0.925 / +0.720 → −0.888 / +0.657 |
+| correct decision (±1) | 0.833 → 0.831 | 0.585 → 0.580 | 0.135 → 0.155 | −0.964 / +0.926 → −0.957 / +0.911 |
 
 **A feature and a metric cannot be evaluated independently.**
+
+---
+
+## Track B: decomposing the swing
+
+`v4_decomposition.ipynb`. The decomposed model is compared with a **direct
+twin** sharing everything else — score, pitch features, hitter priors, folds,
+learner and the take model itself (asserted identical).
+
+| comparison | swing MSE, paired (95% interval) |
+|---|---|
+| decomposed vs direct, generic | −0.085% (−0.103, −0.071) — better in every season |
+| decomposed vs direct, + hot zone | −0.109% (−0.129, −0.091) |
+| + contact priors, direct twin | −0.073% (−0.088, −0.056) |
+| + contact priors, decomposed twin | −0.050% (−0.065, −0.035) |
+
+**The decomposition is the better estimator**, generic and personalized, and
+more stable (Δ SD across refits 0.0070 against 0.0086 runs). It barely changes
+the score: the twins' hitter-season values correlate 0.998. An earlier version
+called it a tie, because it compared the twins on the player checks alone, which
+cannot see an accuracy difference that leaves the score unchanged.
+
+**Contact priors are more accurate and move the score.** A hitter's whiff-rate
+surface reproduces year to year (r ≈ 0.66–0.67; foul rate 0.43–0.46) and
+improves both twins. In the decomposed twin it shifts the score toward contact
+skill: zone-swing | chase 0.648 → 0.582, YoY 0.632 → 0.615, Zone% 0.162 → 0.184.
+That is why the score has two outputs: the priors belong in the answer to "was
+this good for *this* hitter", not in "was this good for a typical hitter".
+
+**Benchmarks.** O-Swing% is heavily contaminated (Zone% |r| 0.421) and weakly
+predictive (0.077). Z-Swing% − O-Swing% is less contaminated than either output
+(0.114) and nearly as predictive as the personalized one (0.146 against 0.173),
+though less reliable (YoY 0.557).
 
 ---
 
@@ -411,49 +349,40 @@ the close calls have the most data.
 clock and intentional walks, ~13.9k rows). 2021 carries 402 pitcher-batters
 against 16–30 later. Overseas games are dropped; Toronto is kept.
 
+
 ---
 
 ## Method notes worth keeping
 
+- **Choose models by paired held-out accuracy; use the player checks as
+  guardrails.** Reliability and prediction checks cannot tell a good model from
+  a stable wrong one, and pitch-level RMSE looks flat for swings only because
+  of outcome luck, which a paired comparison cancels.
+- **Check the learner before blaming the data.** A swing model that seemed
+  unable to learn the size of location effects had simply stopped too early.
+- **A check grouped by location cannot credit a feature that varies within a
+  location.** It hid the value of pitch characteristics.
+- **A better sub-model need not change the metric, and vice versa.** The
+  decomposition improved accuracy while leaving the score unchanged; contact
+  priors improved accuracy while moving the score. Measure both.
 - **Select on held-out seasons, and keep the test untouched — from the first
-  version on.** Every decision here was re-made on the 2023–2025 folds, but
-  2026 had already been inspected by earlier versions, and removing it from the
-  code does not undo that. It is now an out-of-regime evaluation, scored at the
-  end by a model trained through 2024 and one trained through 2025; a clean
-  confirmatory test needs a season never looked at (2027).
+  version on.** 2026 was inspected by earlier versions, and removing it from the
+  code does not undo that.
 - **One zone definition for every season.** Using each season's own
   `sz_top`/`sz_bot` changes the meaning of "in the zone" at the 2025/2026
   boundary; so does applying the ball radius on some edges and not others.
 - **Judge a feature by the best available estimator, not the naive one.** The
   hot zone goes from r ≈ 0.30 to ≈ 0.68 with no new data.
-- **A poor estimator of a signal does not necessarily harm the metric**, and a
-  good one does not necessarily help it. Measure the metric.
 - **Prior-window features drift when the window grows.** With every prior
-  season, the hull flag fires on 14.5% of pitches in 2022 and 25.1% in 2025.
-  A fixed two-season window holds it at 20–21%.
-- **Check the learner before blaming the data.** A swing model that looked
-  like it could not learn the size of location effects was simply stopped too
-  early. Calibrate by predicted value, with intervals, before drawing
-  conclusions from a slope.
-- **A better sub-model is not a better metric.** Contact priors and the
-  decomposition both improved outcome prediction and left the decision metric
-  unchanged or worse. Judge a model change by the metric's checks.
-- **A check grouped by location cannot credit a feature that varies within a
-  location.** Pitch characteristics and the hot zone both look inert on the
-  bin-mean check while mattering elsewhere.
+  season, the hull flag fires on 14.5% of pitches in 2022 and 25.1% in 2025; a
+  fixed two-season window holds it at 20–21%.
 - **Judge counterfactual support by ambiguity, not raw counts.** Thin cells
   coincide with obvious decisions, where a large gap makes the call robust.
 - **Report construct validity as partial correlations.** Chase rate and
   zone-swing rate correlate +0.5 through aggression, so a raw correlation
-  against either is confounded and reads as though the metric ignores half the
-  construct.
-- **Never report RMSE without its floor.** The target is a function of
-  `(outcome, count)`, so a count-only lookup is the baseline; the level alone
-  mostly reflects which action is being scored.
+  against either is confounded.
 - Hitter features for season *t* must come from seasons before *t*.
 - Realized bat speed or exit velocity on the swing being graded is never a
   feature — that is execution, not decision.
-- Contact quality cannot change an umpire's call, so hitter features belong on
-  the swing side only. Verified: adding the hull to the take model moved its
-  held-out RMSE from 0.04361 to 0.04368, and adding the hot zone changed
-  nothing.
+- Contact quality cannot change an umpire's call: hitter features in the take
+  model made it less accurate (the hull by 0.27%, the hot zone by 0.35%).

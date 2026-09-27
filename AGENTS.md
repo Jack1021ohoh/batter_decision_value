@@ -71,8 +71,11 @@ belong in `FINDINGS.md`, not there.
 - `src/baselines.py` — baseline models. `fit_v1()` takes a feature list, so v2
   is the same call with `in_nitro` appended rather than a copy. `fit_direct()`
   is the same two-model design under `LEARNER` (learning rate 0.05, rounds by
-  early stopping on 10% of training games); it is the current model's fit and
-  Track B's direct twin. `fit_v1` is left untouched so v1–v3 reproduce.
+  early stopping on 10% of training games) and is what every version uses —
+  hyperparameters are pipeline, not design. `fit_v1` (v1's original fixed
+  settings) survives only for the one cell in v1 that shows why they were
+  replaced. `fit_direct(recalibrate=True)` fits a linear map on the
+  early-stopping games; it was tried and did not help (see FINDINGS).
   Hitter features (`SWING_ONLY_FEATURES`) go to the swing model only unless
   `swing_only=False`; v2 uses that to reproduce its as-designed routing.
   `predict_chosen()` is v1's defining choice (score the action actually taken);
@@ -80,18 +83,27 @@ belong in `FINDINGS.md`, not there.
 - `src/evaluate.py` — the shared harness. `run_folds()` fits a variant on the
   rolling-origin folds (`GENERIC_FOLDS`, `PERSONALIZED_FOLDS`) — run-value
   table, both models and the count-only reference all learned per fold — and
-  returns only held-out seasons (2023–25); it refuses 2026. `harness()` takes
-  that and returns one scorecard row: construct validity, `split_half`,
-  `yoy_reliability`, `zone_pct_correlation` (the SOTO test),
-  `predictive_validity`, plus `bin_calibration` for each sub-model.
-  `in_sample_checks()` reports the last fold on its own training seasons,
-  separately. `run_folds(fit=...)` takes any fit function returning an object
-  with `.predict(df, action)`. Calibration: `bin_calibration` (by location ×
-  count) and `prediction_calibration` (by predicted value, covers the whole
-  model), each with a game-resampled interval (`ci=True`);
-  `outcome_diagnostics` for the decomposed classifier. Also `whiff_auc`,
-  `rmse_vs_count_baseline`.
-- `src/decomposition.py` — Track B's whiff / foul / in-play swing model.
+  returns only held-out seasons (2023–25); it refuses 2026.
+  `run_folds(fit=...)` takes any fit function returning an object with
+  `.predict(df, action)`.
+  - **Choosing models:** `paired_accuracy(run_a, run_b)` — squared error on
+    the same pitches with a game-resampled interval; this decides.
+    `accuracy(run)` against the count-only predictor.
+  - **Calibration:** `calibration_table` / `prediction_calibration` (grouped
+    by predicted value — the whole model), `bin_calibration` (by location ×
+    count — cannot credit within-cell features), `propensity_calibration`
+    with `swing_propensity` (is `Q_swing` sound where it is extrapolated),
+    `outcome_diagnostics` for the decomposed classifier.
+    `recalibrate_last_season` was tried and rejected (over-corrects).
+  - **Guardrails:** `harness()` returns one scorecard row (model columns, then
+    construct validity, `split_half`, `yoy_reliability`,
+    `zone_pct_correlation` — the SOTO test — and `predictive_validity`);
+    `metric_differences(run_a, run_b)` gives hitter-resampled intervals on
+    their paired differences. `in_sample_checks()` reports the last fold on its
+    own training seasons, separately. Also `whiff_auc`,
+    `rmse_vs_count_baseline`.
+- `src/decomposition.py` — the whiff / foul / in-play swing model behind both
+  outputs.
   `fit_decomposed` shares `fit_take` with `fit_direct`, so the twins' `Q_take`
   is identical (asserted in the notebook). Contact priors route to the
   classifier, damage priors to the in-play value model.
@@ -101,7 +113,7 @@ belong in `FINDINGS.md`, not there.
   published metric does, and unlike a sign-based score can register a feature
   that shifts `Q_swing` without flipping the decision. **Changing it re-opens a
   settled comparison** — the magnitude is what carries the pitch-mix bias, and
-  four attempts to have both properties failed (`FINDINGS.md`).
+  every attempt to have both properties failed (`FINDINGS.md`).
 - `src/features.py` — the nitro zone: `batter_hulls`, `add_in_nitro` (left-join
   semantics, so a hitter with no hull scores False rather than being dropped),
   `season_in_nitro` (builds each season's hulls from prior seasons only, and
@@ -109,9 +121,9 @@ belong in `FINDINGS.md`, not there.
   Also location surfaces for any per-row quantity (`value_surface`,
   `add_surface`, `season_surface`, fixed two-season prior window):
   `season_hot_zone` (exit velocity) and `season_contact_priors` (whiff and foul
-  rates). The hot zone is **not inert** — it is the most valuable feature
-  found, but only under a magnitude-sensitive metric; a sign-based one cannot
-  register it. See FINDINGS.md.
+  rates). Both improve the swing model's held-out accuracy; how much they move
+  the *score* depends on the metric (a sign-based one barely registers them).
+  See FINDINGS.md.
 - `notebooks/` — `data_fetch.ipynb` (the pulls), `eda.ipynb` (§1–§7, ends in a
   decisions table), `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb`
   (the patch), `v4_decomposition.ipynb` (Track B). All do
@@ -160,32 +172,38 @@ belong in `FINDINGS.md`, not there.
   models, A (through 2024) and B (through 2025), and scores 2026 with both. The
   confirmatory test is reserved for 2027.
 - Findings that should not be re-litigated without new evidence
-  (all in `FINDINGS.md`, reproducible from `notebooks/v3.ipynb` and
-  `notebooks/v4_decomposition.ipynb`):
+  (all in `FINDINGS.md`, reproducible from the notebooks):
+  - **Choose models by paired held-out accuracy** (`E.paired_accuracy`), then
+    check calibration; the player-metric checks are guardrails that flag, never
+    select. They show a score is stable and plausible, not that a model is
+    right. Never read swing accuracy as a % improvement over count-only in
+    isolation — outcome luck dominates the level; the paired difference is
+    what counts.
+  - **Two outputs**, both the decomposed swing model on the full pitch frame
+    with `signed_edge`: **generic** (no hitter features — a good decision for a
+    typical hitter) and **personalized** (+ hot zone to the in-play value,
+    + whiff/foul priors to the outcome classifier — a good decision for this
+    hitter; the most accurate model found). The personalized score tracks plate
+    discipline less, by design.
+  - **The decomposition beats the direct regression on accuracy** (swing MSE
+    −0.085% generic, −0.109% with the hot zone, intervals excluding 0) while
+    leaving the score almost unchanged (r = 0.998). An earlier "tie" came from
+    judging on player checks alone.
   - The selected score is **`signed_edge`**. By the criterion fixed in advance
     `correct_decision` measures better on construct validity; `signed_edge` is
-    kept because it retains the run-value magnitude and is the only candidate
-    that gains substantially from personalization without collapsing construct
-    validity. Its pitch-mix contamination is real and unsolved.
-  - **Never judge the swing model by pitch-level RMSE.** Score it on held-out
-    conditional means with a calibration slope and interval —
-    `E.prediction_calibration` for the whole model, `E.bin_calibration` for the
-    location pattern (which cannot credit features that vary within a cell).
-    Under v1's fixed settings the swing model was too compressed (slope
-    1.21–1.26); early stopping calibrates it (1.01–1.05). **The current model
-    is v3's design fitted with `fit_direct`.**
-  - **Track B: decomposition ties the direct model**, generic and
-    personalized (`v4_decomposition.ipynb`); the direct model stays. Contact
-    priors (whiff/foul surfaces) reproduce but pull the score toward contact
-    skill, and are dropped.
+    kept because it retains the run-value magnitude. Its pitch-mix
+    contamination is real and unsolved.
+  - **Calibration is close, not exact** (swing slopes 0.94–1.09, varying by
+    fold). Two recalibration maps — on early-stopping games, and on the
+    previous held-out season — both failed; models are used as fitted.
   - The take model **is** a called-strike probability (median R² 0.991, held
-    out), so a hitter-specific feature cannot help it. Adding the hot zone to
-    the take model changes nothing.
-  - **Personalization is a large effect that interacts with the metric.** Hot
-    zones differ between hitters at the same location by 0.6× the league
-    location effect. A sign-based score barely registers it, since the feature
-    flips the recommended action on only 1.6% of pitches. **Never test a
-    feature against one metric.**
+    out). Hitter features in it made it *less* accurate every time; they go to
+    the swing side only.
+  - **Personalization interacts with the metric.** Hot zones differ between
+    hitters at the same location by 0.6× the league location effect, but the
+    feature flips the recommended action on only 2.0% of pitches, so a
+    sign-based score barely registers it. **Never test a feature against one
+    metric.**
   - **Never vary two things at once.** Compare feature sets with the metric,
     learner, hyperparameters and seasons held fixed; compare metrics with the
     models held fixed.
