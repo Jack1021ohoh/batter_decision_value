@@ -432,6 +432,42 @@ def calibration_table(run: FoldRun) -> pd.DataFrame:
                       for a in ('take', 'swing')}, names=['action'])
 
 
+def recalibrate_last_season(run: FoldRun) -> tuple[FoldRun, pd.DataFrame]:
+    """Recalibrate each held-out season with a linear map learned one season earlier.
+
+    For season s the map `q -> a + b*q` (per action) is fitted on the previous
+    fold's held-out season s-1: predictions made one season ahead, compared
+    with what happened. That is the same kind of shift the map has to correct,
+    and it uses no data the fold for s did not already train on. The first
+    held-out season has no earlier one and is left as fitted.
+
+    Returns the recalibrated run (edges and every decision score recomputed)
+    and the table of maps. Maps fitted within the training seasons -- e.g. on
+    early-stopping games -- do not work here, because the residual
+    miscalibration is a between-season shift they cannot see.
+    """
+    held = run.held.copy()
+    seasons = sorted(held['season'].unique())
+    maps = []
+    for prev, cur in zip(seasons[:-1], seasons[1:]):
+        p = held[held['season'] == prev]
+        for action in ('take', 'swing'):
+            g = p[p['swing'] == (action == 'swing')]
+            b, a = np.polyfit(g[_q(action)], g['target'], 1)
+            maps.append({'season': cur, 'action': action, 'fitted on': prev, 'a': a, 'b': b})
+    maps = pd.DataFrame(maps)
+    for m in maps.itertuples():
+        # Each action's Q is recalibrated on every pitch of the season, not only
+        # where that action was taken: the score uses both on every pitch.
+        col = _q(m.action)
+        season_rows = held['season'] == m.season
+        held.loc[season_rows, col] = m.a + m.b * held.loc[season_rows, col]
+    held['edge'] = held['q_swing'] - held['q_take']
+    held['y_pred'] = np.where(held['swing'], held['q_swing'], held['q_take'])
+    held = DEC.add_scores(held)
+    return FoldRun(held=held, models=run.models, folds=run.folds), maps.set_index(['season', 'action'])
+
+
 def swing_propensity(df: pd.DataFrame, features: list[str], folds) -> pd.Series:
     """League `P(swing | pitch)` for every held-out pitch, fitted per fold on its
     training seasons. Indexed by `PITCH_KEY`."""
