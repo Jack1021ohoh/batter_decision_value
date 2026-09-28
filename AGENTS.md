@@ -99,7 +99,8 @@ belong in `FINDINGS.md`, not there.
     construct validity, `split_half`, `yoy_reliability`,
     `zone_pct_correlation` — the SOTO test — and `predictive_validity`);
     `metric_differences(run_a, run_b)` gives hitter-resampled intervals on
-    their paired differences. `in_sample_checks()` reports the last fold on its
+    their paired differences; `zone_contamination(held, score)` gives Zone% r
+    raw and under four controls. `in_sample_checks()` reports the last fold on its
     own training seasons, separately. Also `whiff_auc`,
     `rmse_vs_count_baseline`.
 - `src/decomposition.py` — the whiff / foul / in-play swing model behind both

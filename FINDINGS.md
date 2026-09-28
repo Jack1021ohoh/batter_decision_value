@@ -139,8 +139,8 @@ feature that changes how much a swing is worth without flipping the decision.
 Magnitude-weighted scores can be contaminated by pitch mix. Zone% against the
 score, with something held fixed (`v3.ipynb`; "v3" is that notebook's selected
 model — the direct regression on the full pitch frame with the hot zone, as
-recalibrated there). **These controls were not re-run on the v4 outputs**; only
-their raw Zone% is measured (generic 0.270, personalized 0.184).
+recalibrated there). The two outputs in use are measured the same way in
+`v4_decomposition.ipynb`, below.
 
 | model | score | raw | \| correct-decision rate | \| chase, zone-swing | \| production |
 |---|---|---|---|---|---|
@@ -162,6 +162,22 @@ score's correlation — `signed_edge`'s from 0.172 to 0.301.
 
 **`correct_decision` is cleaner on v1's features but not on v3's**; the hot zone
 closes the gap.
+
+**On the two outputs in use** (`v4_decomposition.ipynb`):
+
+| output | score | raw | \| correct-decision rate | \| chase, zone-swing | \| production |
+|---|---|---|---|---|---|
+| generic | `signed_edge` | 0.270 | 0.125 | −0.055 | 0.373 |
+| generic | `correct_decision` | 0.241 | *(circular)* | 0.113 | 0.334 |
+| personalized | `signed_edge` | 0.184 | −0.061 | −0.211 | 0.318 |
+| personalized | `correct_decision` | 0.244 | *(circular)* | 0.059 | 0.346 |
+
+The same pattern: **without hitter features `signed_edge` is the more
+contaminated score** — the generic output's is the highest of any score here,
+0.373 with production held fixed — **and with them it is the less
+contaminated one** (personalized 0.184 raw and 0.318 against 0.244 and 0.346
+for `correct_decision`). A hitter's opportunities feed the magnitude of his
+edges unless the model knows what that hitter does with them.
 
 **Rescaling cannot fix it** — z-score, OPS+-style ratio and percentile rank
 correlate 0.9997 or more.

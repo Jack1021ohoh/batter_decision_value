@@ -781,6 +781,40 @@ def metric_differences(run_a: FoldRun, run_b: FoldRun, value_col: str = DEC.DEFA
     return pd.DataFrame(rows).set_index('check')
 
 
+def zone_contamination(held: pd.DataFrame, value_col: str = DEC.DEFAULT_SCORE) -> dict:
+    """Zone% correlation with the score under four controls, averaged over seasons.
+
+    Raw Zone% |r| is a lenient screen: better hitters are thrown fewer
+    strikes, so a score that tracks hitter quality picks up a negative pull
+    that can mask a positive bias. So the correlation is also reported holding
+    fixed the correct-decision rate (from the same model's edge -- and
+    circular for `correct_decision` itself), chase and zone-swing rates
+    (model-free, but they vary with how hard the pitches a hitter sees are),
+    and production (removing the hitter-quality pull). Every control is a
+    screen, not proof.
+    """
+    key = ['season', 'batter']
+    h = held.assign(_in=D.in_rulebook_zone(held, ball_edge=True), _right=held['correct_decision'] > 0)
+    g = h.groupby(key, observed=True)
+    hit = pd.DataFrame({'zone_pct': g['_in'].mean(), 'cd_rate': g['_right'].mean(),
+                        'chase': h[~h['_in']].groupby(key, observed=True)['swing'].mean(),
+                        'zone_swing': h[h['_in']].groupby(key, observed=True)['swing'].mean()}).reset_index()
+    hit = hit.merge(_production(held), on=key)
+    m = player_metric(held, value_col).merge(hit, on=key).dropna()
+    controls = {'raw': [], '| correct-decision rate': ['cd_rate'],
+                '| chase, zone-swing': ['chase', 'zone_swing'], '| production': ['re_per_pa']}
+    out = {}
+    for label, ctrl in controls.items():
+        rs = []
+        for _, t in m.groupby('season'):
+            w = np.ones(len(t))
+            rs.append(_wpartial(t['decision_value'].to_numpy(), t['zone_pct'].to_numpy(),
+                                [t[c].to_numpy() for c in ctrl], w))
+        out[f'Zone% r {label}'] = float(np.mean(rs))
+    out['corr(Zone%, production)'] = float(np.corrcoef(hit['zone_pct'], hit['re_per_pa'])[0, 1])
+    return out
+
+
 # --------------------------------------------------------------------------
 # One row for the scorecard
 # --------------------------------------------------------------------------

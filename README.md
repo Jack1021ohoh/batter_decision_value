@@ -132,7 +132,9 @@ numbers, a sign-only score (+1 right, −1 wrong) has better construct validity.
 `signed_edge` keeps the run-value magnitude, as every published metric does,
 and registers a feature that changes how much a swing is worth without
 flipping the decision. The magnitude carries a pitch-mix contamination the
-field shares and this project has not solved — see [`FINDINGS.md`](FINDINGS.md).
+field shares and this project has not solved. It is worst on the generic
+output (Zone% r 0.373 with production held fixed) and smaller on the
+personalized one (0.318) — see [`FINDINGS.md`](FINDINGS.md).
 
 **Calibration is close, not exact.** v1's original fixed settings left the swing
 model's values about a fifth too compressed; every version now uses early
