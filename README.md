@@ -108,12 +108,14 @@ only — cuts swing MSE a further 0.06%. With the metric held at `signed_edge`,
 v1's features score YoY 0.594, Zone% 0.298 and next-season 0.084; v3's are
 more reliable (0.630), less contaminated (0.172) and more predictive (0.166),
 at a construct-validity cost (−0.921 / +0.703 → −0.887 / +0.660) that comes
-entirely from the hot zone. v3's row is its selected model as that notebook reports it —
-recalibrated on early-stopping games, a step later found not to help.
+entirely from the hot zone. v3's row is its selected model as that notebook
+reports it — recalibrated on early-stopping games, a step later found not to
+help.
 
 **v3 → v4: a better swing model, and a second question.** Modelling the swing as
-whiff / foul / in play, with v3's features unchanged, cuts swing MSE by 0.11%
-while barely changing the score (hitter values correlate 0.998). Adding the
+whiff / foul / in play, with v3's features unchanged, cuts swing MSE by 0.11%.
+It barely changes the score: without hitter features, the direct and decomposed
+models' hitter values correlate 0.998. Adding the
 hitter's whiff and foul tendencies cuts it by a further 0.05% and gives the
 **personalized** output — the most accurate model, with the most reliable and
 predictive score, but one that tracks plate discipline less (zone-swing | chase
@@ -122,9 +124,8 @@ The **generic** output drops hitter features altogether: about as accurate as
 v3 (swing MSE 1.95% below count-only, against 1.93% — the decomposition makes
 up for the missing hot zone), with the strongest construct validity of any
 `signed_edge` row (−0.914 / +0.706), at the price of Zone% 0.270 and
-next-season 0.100. Which one
-to read depends on the question: a good decision for a typical hitter, or for
-this one.
+next-season 0.100. Which one to read depends on the question: a good decision
+for a typical hitter, or for this one.
 
 **The metric is a trade, not a clean win.** By the criterion fixed before any
 numbers, a sign-only score (+1 right, −1 wrong) has better construct validity.
