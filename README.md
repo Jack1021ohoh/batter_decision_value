@@ -95,10 +95,36 @@ compare within a metric.
 | **v4 generic** — decomposed, pitch frame | −1.95% | 1.044 | −70.1% | −0.914 | 0.706 | 0.816 | 0.583 | 0.270 | 0.100 |
 | **v4 personalized** — + hot zone, contact priors | −2.09% | 0.960 | −70.1% | −0.862 | 0.582 | 0.847 | 0.615 | 0.184 | 0.173 |
 
-v2 does not beat v1: its hull helps the swing model by 0.018% of MSE and hurts
-the take model by 0.27%. v3's row is its selected model as that notebook
-reports it — recalibrated on early-stopping games, a step later found not to
-help (below). v4's two outputs are the models in use.
+**v1 → v2: not better.** The hull helps the swing model by 0.018% of MSE and
+hurts the take model by 0.27%, because v2 feeds a contact feature to a model of
+an umpire's call. Its score gains reliability and loses construct validity
+(zone-swing | chase 0.678 → 0.548): the flag mostly marks the middle of the
+zone, so it pulls the score toward "is he a good hitter" more than it improves
+the model.
+
+**v1 → v3: better on every model column.** The full pitch frame cuts take MSE
+by 8.7% and swing MSE by 0.26%, and the hot-zone surface — in the swing model
+only — cuts swing MSE a further 0.06%. With the metric held at `signed_edge`,
+v1's features score YoY 0.594, Zone% 0.298 and next-season 0.084; v3's are
+more reliable (0.630), less contaminated (0.172) and more predictive (0.166),
+at a construct-validity cost (−0.921 / +0.703 → −0.887 / +0.660) that comes
+entirely from the hot zone. v3's row is its selected model as that notebook reports it —
+recalibrated on early-stopping games, a step later found not to help.
+
+**v3 → v4: a better swing model, and a second question.** Modelling the swing as
+whiff / foul / in play, with v3's features unchanged, cuts swing MSE by 0.11%
+while barely changing the score (hitter values correlate 0.998). Adding the
+hitter's whiff and foul tendencies cuts it by a further 0.05% and gives the
+**personalized** output — the most accurate model, with the most reliable and
+predictive score, but one that tracks plate discipline less (zone-swing | chase
+0.660 → 0.582) and is slightly more contaminated than v3 (0.184 against 0.172).
+The **generic** output drops hitter features altogether: about as accurate as
+v3 (swing MSE 1.95% below count-only, against 1.93% — the decomposition makes
+up for the missing hot zone), with the strongest construct validity of any
+`signed_edge` row (−0.914 / +0.706), at the price of Zone% 0.270 and
+next-season 0.100. Which one
+to read depends on the question: a good decision for a typical hitter, or for
+this one.
 
 **The metric is a trade, not a clean win.** By the criterion fixed before any
 numbers, a sign-only score (+1 right, −1 wrong) has better construct validity.
