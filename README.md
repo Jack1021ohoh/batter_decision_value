@@ -44,7 +44,7 @@ interval from resampling games; calibration checks the winner; the
 player-metric checks (below) are guardrails. They show a score is stable and
 plausible, but cannot show a model is right.
 
-### The two outputs
+### The two outputs (v4)
 
 | output | question | chase \| zone-swing | zone-swing \| chase | split-half | YoY R² | Zone% \|r\| | next-season partial r |
 |---|---|---|---|---|---|---|---|
@@ -80,12 +80,25 @@ luck; the paired comparison cancels it, which is why the intervals sit well
 away from zero. Putting hitter features in the take model made it worse
 every time — contact skill cannot change an umpire's call.
 
-**v1 and v2 as designed** (value of the action taken, v2's folds):
+### Each version
 
-| | chase \| zone-swing | zone-swing \| chase | split-half | YoY R² | Zone% \|r\| | next-season |
-|---|---|---|---|---|---|---|
-| v1 | −0.890 | 0.678 | 0.763 | 0.538 | 0.116 | 0.129 |
-| v2 | −0.803 | 0.548 | 0.794 | 0.540 | 0.058 | 0.129 |
+Held out 2023–25 on the same personalized folds and learner. v1 and v2 score
+the value of the action taken, because that is their design; v3 and v4 score
+`signed_edge`. The model columns compare across every row; the player checks
+compare within a metric.
+
+| version | swing MSE vs count-only | swing calibration slope | take MSE vs count-only | chase \| zone-swing | zone-swing \| chase | split-half | YoY R² | Zone% \|r\| | next-season |
+|---|---|---|---|---|---|---|---|---|---|
+| v1 — location, count | −1.61% | 1.067 | −67.2% | −0.890 | 0.678 | 0.763 | 0.538 | 0.116 | 0.129 |
+| v2 — + binary hull (both models) | −1.63% | 1.056 | −67.1% | −0.803 | 0.548 | 0.794 | 0.540 | 0.058 | 0.129 |
+| v3 — full pitch frame + hot zone | −1.93% | 1.042 | −70.1% | −0.887 | 0.660 | 0.844 | 0.630 | 0.172 | 0.166 |
+| **v4 generic** — decomposed, pitch frame | −1.95% | 1.044 | −70.1% | −0.914 | 0.706 | 0.816 | 0.583 | 0.270 | 0.100 |
+| **v4 personalized** — + hot zone, contact priors | −2.09% | 0.960 | −70.1% | −0.862 | 0.582 | 0.847 | 0.615 | 0.184 | 0.173 |
+
+v2 does not beat v1: its hull helps the swing model by 0.018% of MSE and hurts
+the take model by 0.27%. v3's row is its selected model as that notebook
+reports it — recalibrated on early-stopping games, a step later found not to
+help (below). v4's two outputs are the models in use.
 
 **The metric is a trade, not a clean win.** By the criterion fixed before any
 numbers, a sign-only score (+1 right, −1 wrong) has better construct validity.
