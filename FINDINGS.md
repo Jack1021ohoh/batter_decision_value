@@ -67,15 +67,34 @@ most accurate model found (swing MSE 2.09% below a count-only predictor, against
 predictive, and tracks plate discipline less — by design. The two correlate
 0.939 across hitter-seasons.
 
-**v1 and v2 as designed** (value of the action taken, v2's folds):
+**Each version**, held out on the same personalized folds and learner. v1 and
+v2 score the value of the action taken, as designed; v3 and v4 score
+`signed_edge`. The model columns compare across every row; the player checks
+compare within a metric.
 
-| | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
-|---|---|---|---|---|---|---|
-| v1 | −0.890 | 0.678 | 0.763 | 0.538 | 0.116 | 0.129 |
-| v2 | −0.803 | 0.548 | 0.794 | 0.540 | 0.058 | 0.129 |
+| version | swing MSE vs count-only | swing calibration slope | take MSE vs count-only | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
+|---|---|---|---|---|---|---|---|---|---|
+| v1 — location, count | −1.61% | 1.067 | −67.2% | −0.890 | 0.678 | 0.763 | 0.538 | 0.116 | 0.129 |
+| v2 — + binary hull (both models) | −1.63% | 1.056 | −67.1% | −0.803 | 0.548 | 0.794 | 0.540 | 0.058 | 0.129 |
+| v3 — full pitch frame + hot zone | −1.93% | 1.042 | −70.1% | −0.887 | 0.660 | 0.844 | 0.630 | 0.172 | 0.166 |
+| v4 generic | −1.95% | 1.044 | −70.1% | −0.914 | 0.706 | 0.816 | 0.583 | 0.270 | 0.100 |
+| v4 personalized | −2.09% | 0.960 | −70.1% | −0.862 | 0.582 | 0.847 | 0.615 | 0.184 | 0.173 |
 
-v2's hull does not make a better model: swings 0.018% better, takes 0.27% worse
-(it feeds a contact feature to a model of an umpire's call).
+- **v1 → v2: not a better model.** The hull improves the swing model by 0.018%
+  of MSE and worsens the take model by 0.27%, since v2 feeds a contact feature
+  to a model of an umpire's call. Its score gains reliability and loses
+  construct validity (zone-swing | chase 0.678 → 0.548).
+- **v1 → v3: better on every model column.** The pitch frame and the hot zone
+  together; the step-by-step accuracy is in "The feature ladder". Under
+  `signed_edge` the score becomes more reliable, less contaminated and more
+  predictive, at a construct cost that comes from the hot zone. v3's row is its
+  selected model as that notebook reports it — recalibrated on early-stopping
+  games, a step later found not to help; as fitted, its player checks differ by
+  at most 0.003.
+- **v3 → v4: a better swing model.** Decomposing the swing, with v3's features,
+  cuts swing MSE 0.109%; contact priors a further 0.050% (the personalized
+  output). The generic output drops hitter features and is about as accurate as
+  v3, with the strongest construct validity of any `signed_edge` row.
 
 ---
 
@@ -118,8 +137,10 @@ feature that changes how much a swing is worth without flipping the decision.
 ### The contamination problem
 
 Magnitude-weighted scores can be contaminated by pitch mix. Zone% against the
-score, with something held fixed (`v3.ipynb`; the v3 model is the direct
-regression on the full pitch frame with the hot zone):
+score, with something held fixed (`v3.ipynb`; "v3" is that notebook's selected
+model — the direct regression on the full pitch frame with the hot zone, as
+recalibrated there). **These controls were not re-run on the v4 outputs**; only
+their raw Zone% is measured (generic 0.270, personalized 0.184).
 
 | model | score | raw | \| correct-decision rate | \| chase, zone-swing | \| production |
 |---|---|---|---|---|---|
@@ -167,9 +188,10 @@ share** — it is what retired SOTO.
 
 ## The feature ladder
 
-Personalized folds, `signed_edge`, each rung a complete feature set (the hull
-and the surface estimate the same thing, so they are never combined). Paired
-accuracy is each rung against the one it replaces; negative = better.
+Personalized folds, `signed_edge`, direct regression as fitted, each rung a
+complete feature set (the hull and the surface estimate the same thing, so they
+are never combined). Paired accuracy is each rung against the one it replaces;
+negative = better.
 
 | rung | swing MSE (95% interval) | take MSE | chase\|zs | zs\|chase | YoY R² | Zone% \|r\| | next-season |
 |---|---|---|---|---|---|---|---|
@@ -185,8 +207,10 @@ characteristics takes 0.5% and swings 0.15%. A location-binned check had
 suggested pitch characteristics added nothing to the swing model — it could not
 see them, because it averages over everything within a location cell.
 
-**The hot zone belongs in the swing model only.** It improves the swing model
-three times as much as the hull; in the take model it makes that model worse.
+**The hot zone belongs in the swing model only.** On the same base model
+(batter-frame location and count) it improves the swing model three times as
+much as the hull — 0.059% of MSE against 0.018% — and beats the hull head to
+head. In the take model it makes that model worse (by 0.35%).
 
 **The guardrails move with the surface**: YoY, Zone% and next-season improve,
 while construct validity slips (−0.916 / +0.711 → −0.885 / +0.662), all with
@@ -212,8 +236,9 @@ every version uses the early-stopping learner.
 **Calibration is close but not exact, and two repairs failed.** Across the
 final models, take slopes are 0.99–1.00 and swing slopes 0.94–1.09, furthest
 from 1 in 2023, whose fold trains on one season. A linear map fitted on
-early-stopping games left swing MSE unchanged and swing calibration worse; one
-fitted on the previous held-out season over-corrected and made MSE worse. The
+early-stopping games left swing MSE unchanged and swing calibration worse in two
+of three seasons; one fitted on the previous held-out season over-corrected and
+made MSE worse. The
 residual varies from fold to fold, so neither map could predict it; the models
 are used as fitted.
 
@@ -282,8 +307,10 @@ learner and the take model itself (asserted identical).
 | + contact priors, decomposed twin | −0.050% (−0.065, −0.035) |
 
 **The decomposition is the better estimator**, generic and personalized, and
-more stable (Δ SD across refits 0.0070 against 0.0086 runs). It barely changes
-the score: the twins' hitter-season values correlate 0.998. An earlier version
+more stable: refit on resampled games, its Δ varies less (SD 0.0070 against
+0.0086 runs for the generic twins, 0.0073 against 0.0087 with the hot zone). It
+barely changes the score: the generic twins' hitter-season values correlate
+0.998. An earlier version
 called it a tie, because it compared the twins on the player checks alone, which
 cannot see an accuracy difference that leaves the score unchanged.
 
