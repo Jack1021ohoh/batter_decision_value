@@ -148,58 +148,11 @@ nearly as predictive as the personalized one (0.146 against 0.173), though less
 reliable — the benchmark to beat on contamination.
 
 [`FINDINGS.md`](FINDINGS.md) collects what the data established — results, the
-metric analysis, the 2026 ABS measurement regime, and the method notes worth
-carrying forward.
+metric analysis, what the EDA found (including the 2026 ABS measurement
+regime), and the method notes worth carrying forward.
 [`mlb_swing_decision_related_work.md`](mlb_swing_decision_related_work.md)
 reviews the public and academic work this builds on (Yee–Deshpande, EAGLE,
 SEAGER, SwRV, SOTO, Nestico, Creally, Vock & Vock).
-
-## What the EDA established
-
-Full detail in `notebooks/eda.ipynb`; these are the results that shape the
-models.
-
-**The 2026 ABS season is usable, after harmonization.** Statcast moved
-`plate_x`/`plate_z` from front-of-plate to middle-of-plate in 2026 and switched
-`sz_top`/`sz_bot` to the ABS zone. The location shift is ~1 inch vertically and
-depends on pitch type (0.7 in for a four-seamer, 1.5 in for a curveball), so it
-is converted exactly from the pitch trajectory rather than offset.
-
-**The ABS zone is 27%–53.5% of batter height, exactly.** In 2026 the ratio
-`sz_bot/sz_top` is 0.5047 for every batter, with zero spread. Applying that band
-to each batter's listed height gives one zone definition valid in every season.
-Without it, cross-era comparisons are confounded, because the ABS zone is
-~2.8 in shorter than the operator-set zone it replaced.
-
-**ABS judges "any part of the ball", not its centre** — the same convention as
-the rulebook. The empirical 50% called-strike boundary sits one ball radius
-outside the nominal zone.
-
-**The called zone tightened under ABS.** On the common zone the 50% boundary
-went 0.190 → 0.121 ft and the effective called area shrank 8.1%, with 2026
-landing on the ball radius: the called boundary converged on the true one. The
-lefty strike shrank by only ~20%, as expected when just a few pitches per game
-are challenged.
-
-**Counterfactual support is sufficient.** The thinnest cells are 3-0 off the
-plate (~22 league swings per season), but those are also the least ambiguous,
-so estimation error there cannot flip a decision. Support correlates +0.65 with
-ambiguity — the close calls have the most data.
-
-**Hot zones are real and stable, if estimated properly.** Per-hitter
-exit-velocity surfaces reproduce year over year at r ≈ 0.30 from raw bins, but
-**r ≈ 0.63–0.68 when kernel-smoothed and shrunk toward the league**, and a
-two-season prior beats a one-season one in every season tested. Hitter surfaces
-are nearly three-dimensional (89% of between-hitter variance in three
-components), which is why pooling recovers so much.
-
-A binary flag over the same signal is a poor estimator of it and barely helps
-the model, because 95% of the pitches it marks are in the strike zone, so it
-acts as a coarse location feature rather than as personalization. The
-continuous surface improves the model three times as much, and shows up in the
-score only under a metric that keeps the run-value magnitude: a sign-based
-score barely registers it, since the feature flips the recommended action on
-just 2.0% of pitches.
 
 ## Getting started
 

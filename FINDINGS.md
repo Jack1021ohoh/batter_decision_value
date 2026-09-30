@@ -294,6 +294,11 @@ modal "best cell" holds only **21%** of hitter-seasons.
 Hitter surfaces are nearly three-dimensional — 3 principal components explain
 89% of between-hitter variation — which is why pooling recovers so much.
 
+A binary flag over the same signal — v2's convex hull — is a poor estimator of
+it: 95% of the pitches it marks are in the strike zone, so it acts as a coarse
+location feature rather than as personalization, and improves the model a third
+as much as the continuous surface.
+
 **And the metric has to be able to see it.** The surface moves `Q_swing` by a
 quarter of its own standard deviation but flips the recommended action on only
 **2.0%** of pitches. With the model held fixed (batter-frame location and
@@ -344,7 +349,10 @@ though less reliable (YoY 0.557).
 
 ---
 
-## The data
+## The data (EDA)
+
+Full detail in `notebooks/eda.ipynb`, whose seven sections each end in a
+decision; these are the results that shape the models.
 
 **2026 is a different measurement regime.** Statcast moved `plate_x`/`plate_z`
 from front-of-plate to middle-of-plate and switched `sz_top`/`sz_bot` to the ABS
@@ -358,7 +366,8 @@ zone used throughout applies that band to MLB's listed height, available for
 every batter in every season. Listed height is rounded to the inch while ABS
 measures it more finely, so the common zone is off by up to ~0.27 in at the top
 — far less than the 0.073–0.098 ft within-batter noise of the operator-set
-bounds it replaces.
+bounds it replaces. Without one zone, cross-era comparisons are confounded: the
+ABS zone is ~2.8 in shorter than the operator-set zone it replaced.
 
 **ABS judges "any part of the ball", not its centre** — the same convention as
 the rulebook. The empirical 50% called-strike boundary sits one ball radius
