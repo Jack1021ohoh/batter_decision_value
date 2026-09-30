@@ -10,7 +10,9 @@ FINDINGS.md compares like with like. Three of the choices here are not obvious:
   next-season validity on 2023->24 and 2024->25. `run_folds` refuses 2026:
   it is kept out of model selection. (It is not a clean test -- earlier
   versions scored it -- so it is reported at the end as an out-of-regime
-  evaluation, with 2027 reserved for a confirmatory test.)
+  evaluation. The confirmatory test is 2027; once it is complete, 2026 becomes
+  ordinary data -- a training season and a held-out fold -- and this guard
+  moves to 2027.)
 * **Models are selected by paired held-out accuracy.** `paired_accuracy`
   compares two variants' squared error on the same pitches. Outcome luck adds
   the same amount to both, so the difference is the difference in how far

@@ -36,7 +36,11 @@ clean test: earlier versions of this project scored it, printed a 2026
 leaderboard, and averaged its pairs into the headline figures that informed the
 metric and feature choices. It will be reported as a previously inspected,
 out-of-regime evaluation — the first ABS season. A confirmatory test needs a
-season no version has seen, so 2027 is reserved for that.
+season no version has seen, so 2027 is the test season. That does not keep 2026
+out of training: once 2027 is complete, 2026 becomes ordinary data — a training
+season and an extra held-out fold for model selection, the only one in the ABS
+regime — and the final model is fitted through 2026, with every decision
+locked before 2027 is scored once.
 
 **Models are chosen by accuracy, not by how the score looks.** Between two
 variants, held-out squared error on the same pitches decides, with a 95%

@@ -172,7 +172,10 @@ belong in `FINDINGS.md`, not there.
   versions scored it and printed a 2026 leaderboard — so describe it as a
   previously inspected, out-of-regime evaluation. The final step keeps two
   models, A (through 2024) and B (through 2025), and scores 2026 with both. The
-  confirmatory test is reserved for 2027.
+  confirmatory test is 2027. That does not keep 2026 out of training: once
+  2027 is complete, 2026 is ordinary data — training, and a held-out fold for
+  selection (the only ABS-regime one) — the final model is fitted through
+  2026, and 2027 is scored once after every decision is locked.
 - Findings that should not be re-litigated without new evidence
   (all in `FINDINGS.md`, reproducible from the notebooks):
   - **Choose models by paired held-out accuracy** (`E.paired_accuracy`), then

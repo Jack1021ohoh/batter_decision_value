@@ -18,7 +18,11 @@ averaged the 2025→26 pairs into the headline means that informed the choice of
 metric and features. Re-making those decisions on the folds changes the
 evidence, not that history. 2026 will be reported as a previously inspected,
 out-of-regime evaluation (the first ABS season); the confirmatory test is
-reserved for 2027, a season no version has seen.
+2027, a season no version has seen. That does not keep 2026 out of training:
+once 2027 is complete, 2026 becomes ordinary data — a training season, and a
+held-out fold (train through 2025, score 2026) for model selection, the only
+one in the ABS regime. The final model is fitted through 2026 and scores 2027
+once, after every decision is locked.
 
 ---
 
