@@ -130,9 +130,10 @@ belong in `FINDINGS.md`, not there.
   (the patch), `v4_decomposition.ipynb` (Track B). All do
   `sys.path.insert(0, '..')`. The model notebooks load 2021–2025 only.
 - Key EDA results now in `FINDINGS.md`: ABS band is exactly
-  27%–53.5% of height; run values drift ≤0.014 runs across seasons (one table
-  suffices); counterfactual support is thinnest on 3-0 off the plate, where the
-  decision is least ambiguous; 43% of batter-location cells hold <10 balls in
+  27%–53.5% of height; run values drift 0.007 runs on a pitch-weighted
+  average and ≤0.021 for the cells covering 95% of pitches (one table per
+  fold suffices); counterfactual support is thinnest on 3-0 off the plate,
+  where the decision is least ambiguous; 43% of batter-location cells hold <10 balls in
   play, so per-hitter surfaces must be smoothed and shrunk, on a two-season
   prior window.
 - **ABS judges "any part of the ball", not the ball's centre** — same

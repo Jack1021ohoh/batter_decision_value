@@ -513,9 +513,20 @@ def in_rulebook_zone(df: pd.DataFrame, ball_edge: bool = True,
 def run_value_table(df: pd.DataFrame, years) -> pd.Series:
     """Mean `delta_run_exp` by (outcome, count), computed on `years` only.
 
-    The old pipeline recomputed this per season inside the cleaning step, so
-    each season's targets were built from its own run environment. Fit it once
-    on the training seasons and apply it everywhere.
+    Each fold fits it on its training seasons and applies it to those seasons
+    and to the season it holds out. The original pipeline instead built a table
+    per season from that season's own outcomes, to follow the run environment.
+    Two reasons not to:
+
+    * a held-out season graded against a table built from its own outcomes is
+      graded against a different definition of value than the model learned,
+      so any change in the table would count as model error -- and the season
+      could not be scored until it was over;
+    * the change is small. Across all 132 cells a cell's value moves 0.007
+      runs across 2021-26 on a pitch-weighted average, at most 0.021 among the
+      cells covering 95% of pitches (EDA section 3). The large swings are rare
+      cells (a triple on 3-0) where a season holds a handful of events --
+      sampling noise a per-season table would put into the targets.
     """
     train = df[df['season'].isin(list(years))]
     return train.groupby(['outcome', 'count'], observed=True)['delta_run_exp'].mean()

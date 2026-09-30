@@ -372,8 +372,15 @@ The lefty strike shrank by only ~20%, as expected when a few pitches per game
 are challenged. Pitchers also threw more strikes: Zone% rose from 0.441 (2021)
 to 0.476 (2026) on the common zone.
 
-**Run values do not drift** — at most 0.014 runs across six seasons, so one
-table fitted on each fold's training years suffices.
+**Run values barely drift.** Across all 132 (outcome, count) cells a cell's
+value moves by 0.007 runs across six seasons on a pitch-weighted average, and by
+at most 0.021 among the cells covering 95% of pitches. The large swings are in
+rare cells (a triple or home run on 3-0), where a season holds a handful of
+events — sampling noise that a per-season table would feed into the targets.
+So one table fitted on each fold's training years is used for training and
+held-out seasons alike: the held-out season is then graded against the same
+definition of value the model learned, rather than one built from its own
+outcomes.
 
 **`delta_run_exp` is a deterministic base–out–count lookup** (within-group SD
 0.00000000). Grouping by `(outcome, count)` alone averages over base–out states,
