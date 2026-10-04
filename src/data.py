@@ -377,7 +377,7 @@ def recover_batter_height(df: pd.DataFrame, abs_season: int = 2026) -> pd.Series
     zone is noise-free and, more importantly, *identical across eras* -- so any
     cross-season comparison of the called zone is like-for-like. Measuring the
     zone in each era's own units makes 2026 look more generous than 2021 purely
-    because the ABS nominal zone is ~2.8 in shorter.
+    because the ABS nominal zone is ~2.9 in shorter.
 
     Kept as the verification of `listed_heights`: rounded to the inch these
     recovered heights equal the listed heights for every 2026 batter. Only
@@ -417,8 +417,8 @@ def listed_heights(refresh: bool = False) -> pd.Series:
     ABS sets the zone from a measured height in fractional inches; the listed
     height is that measurement rounded to the inch. Recovering height from the
     2026 ABS zone (`recover_batter_height`) and rounding reproduces the listed
-    height for all 659 batters who appear in 2026, with a mean difference of
-    0.00 in; the unrounded values differ by 0.2-0.5 in. So `0.535 x listed`
+    height for all 662 batters who appear in 2026, with a mean difference of
+    0.00 in; the unrounded values differ by up to 0.5 in. So `0.535 x listed`
     and `0.27 x listed` put the zone within ~0.27 in of the recorded ABS zone
     at the top and ~0.14 in at the bottom, for any batter in any season --
     including the many who never batted in 2026 and so have no recorded ABS

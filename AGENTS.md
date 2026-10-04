@@ -141,7 +141,7 @@ belong in `FINDINGS.md`, not there.
   zone by a ball radius on all four edges, in every season. Verified against
   the empirical called-strike boundary (EDA §4). The real 2026 change is the
   nominal zone: 2.64 in lower at the top (3.215 ft vs 3.435 ft in 2025) and
-  ~2.8 in shorter.
+  ~2.9 in shorter.
 - **One zone for every season: the ABS band on listed height.**
   `in_rulebook_zone()` and `plate_z_norm` both use `zone_top`/`zone_bot` from
   `add_common_zone()`, never `sz_top`/`sz_bot`, which are operator-set through

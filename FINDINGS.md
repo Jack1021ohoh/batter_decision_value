@@ -371,7 +371,7 @@ every batter in every season. Listed height is rounded to the inch while ABS
 measures it more finely, so the common zone is off by up to ~0.27 in at the top
 — far less than the 0.073–0.098 ft within-batter noise of the operator-set
 bounds it replaces. Without one zone, cross-era comparisons are confounded: the
-ABS zone is ~2.8 in shorter than the operator-set zone it replaced.
+ABS zone is ~2.9 in shorter than the operator-set zone it replaced.
 
 **ABS judges "any part of the ball", not its centre** — the same convention as
 the rulebook. The empirical 50% called-strike boundary sits one ball radius
@@ -379,7 +379,7 @@ outside the nominal zone. The 2026 change is the nominal zone
 (2.64 in lower at the top), not the convention.
 
 **The called zone tightened under ABS.** On the common zone the 50% boundary
-went 0.190 → 0.121 ft and the effective called area shrank 8.1%, with 2026
+went 0.190 → 0.121 ft and the effective called area shrank 8.2%, with 2026
 landing on the ball radius — the called boundary converging on the true one.
 The lefty strike shrank by only ~20%, as expected when a few pitches per game
 are challenged. Pitchers also threw more strikes: Zone% rose from 0.441 (2021)
@@ -400,8 +400,8 @@ outcomes.
 whose means span about a quarter of a run — the price of a context-neutral
 target.
 
-**`field_error` is worth +0.461 runs against −0.250 for `field_out`**, close to
-a single. Folding them together mis-prices 6,524 events by 0.71 runs each.
+**`field_error` is worth +0.460 runs against −0.250 for `field_out`**, close to
+a single. Folding them together mis-prices 6,597 events by 0.71 runs each.
 
 **Counterfactual support is sufficient.** The thinnest cells are 3-0 off the
 plate (~22 league swings per season) but those are also the least ambiguous, so
@@ -409,7 +409,7 @@ error there cannot flip a decision. Support correlates **+0.65** with ambiguity 
 the close calls have the most data.
 
 **Exclusions.** `automatic_ball`/`automatic_strike` are non-decisions (pitch
-clock and intentional walks, ~13.9k rows). 2021 carries 402 pitcher-batters
+clock and intentional walks, ~14.0k rows). 2021 carries 402 pitcher-batters
 against 16–30 later. Overseas games are dropped; Toronto is kept.
 
 
