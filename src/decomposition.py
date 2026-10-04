@@ -9,7 +9,9 @@ A swing ends one of three ways, and the target is the run value of
 
 The direct twin estimates the same conditional mean in one regression. The
 decomposition estimates it in pieces: a three-class classifier for what the
-swing produces, and a regressor for what a ball in play is worth. Whiffs are
+swing produces, and a model for what a ball in play is worth -- either a
+regression of its run value, or (`in_play='classifier'`) the probability of
+each in-play event weighted by its run value in the count. Whiffs are
 far more predictable than run value, which is the case for splitting them out.
 
 `DecomposedModels.predict(df, action)` has the same signature as
@@ -48,6 +50,11 @@ DAMAGE_PRIORS = {'hot_zone'}
 CLASSIFIER = {'objective': 'multi:softprob', 'num_class': len(SWING_CLASSES),
               'eval_metric': 'mlogloss'}
 
+#: What a ball in play can become, in in-play classifier column order.
+IN_PLAY_EVENTS = tuple(BIP_OUTCOMES)
+IN_PLAY_CLASSIFIER = {'objective': 'multi:softprob', 'num_class': len(IN_PLAY_EVENTS),
+                      'eval_metric': 'mlogloss'}
+
 
 def swing_class(outcome: pd.Series) -> np.ndarray:
     """0 = whiff (incl. foul tips), 1 = foul, 2 = ball in play; -1 if not a swing outcome."""
@@ -57,6 +64,12 @@ def swing_class(outcome: pd.Series) -> np.ndarray:
     out[o == 'foul'] = 1
     out[np.isin(o, BIP_OUTCOMES)] = 2
     return out
+
+
+def in_play_class(outcome: pd.Series) -> np.ndarray:
+    """Index of each ball-in-play outcome in `IN_PLAY_EVENTS`; -1 if not in play."""
+    lookup = {e: i for i, e in enumerate(IN_PLAY_EVENTS)}
+    return outcome.astype(str).map(lookup).fillna(-1).astype(int).to_numpy()
 
 
 @dataclass
@@ -70,13 +83,27 @@ class DecomposedModels:
     re_whiff: pd.Series                      # RE(swinging_strike, count), indexed by count
     re_foul: pd.Series                       # RE(foul, count)
     rounds: dict
+    in_play: str = 'regression'              # how a ball in play is valued
+    re_in_play: pd.DataFrame | None = None   # RE(event, count): counts x IN_PLAY_EVENTS
 
     def components(self, df: pd.DataFrame) -> pd.DataFrame:
-        """The pieces of `Q_swing` for every row: class probabilities and ball-in-play value."""
+        """The pieces of `Q_swing` for every row: class probabilities and ball-in-play value.
+
+        With `in_play='classifier'` the in-play value is the probability of each
+        event times its run value in the pitch's count, and the event
+        probabilities (`p_single`, ...) are returned too.
+        """
         p = self.outcome.predict(_dmatrix(df, self.outcome_features))
-        return pd.DataFrame({'p_whiff': p[:, 0], 'p_foul': p[:, 1], 'p_bip': p[:, 2],
-                             'bip_value': self.bip_value.predict(_dmatrix(df, self.value_features))},
-                            index=df.index)
+        out = pd.DataFrame({'p_whiff': p[:, 0], 'p_foul': p[:, 1], 'p_bip': p[:, 2]}, index=df.index)
+        v = self.bip_value.predict(_dmatrix(df, self.value_features))
+        if self.in_play == 'regression':
+            out['bip_value'] = v
+            return out
+        re = self.re_in_play.loc[df['count'].astype(str), list(IN_PLAY_EVENTS)].to_numpy()
+        for k, event in enumerate(IN_PLAY_EVENTS):
+            out[f'p_{event}'] = v[:, k]
+        out['bip_value'] = (v * re).sum(axis=1)
+        return out
 
     def predict(self, df: pd.DataFrame, action: str) -> np.ndarray:
         if action == 'take':
@@ -89,14 +116,30 @@ class DecomposedModels:
 
 
 def fit_decomposed(train: pd.DataFrame, features: list[str], rv: pd.Series,
-                   target: str = 'target', **_) -> DecomposedModels:
+                   target: str = 'target', in_play: str = 'regression', **_) -> DecomposedModels:
     """Fit the decomposed twin on one fold's training rows.
 
     `features` is the same list the direct twin gets. The take model sees the
     pitch features only; the classifier adds any contact priors; the
-    ball-in-play regressor adds any damage priors. `rv` is the fold's
+    ball-in-play model adds any damage priors. `rv` is the fold's
     (outcome, count) run-value table -- the one that defines `target`.
+
+    `in_play` chooses how a ball in play is valued:
+
+    * `'regression'` -- regress its run value directly;
+    * `'classifier'` -- predict the probability of each of `IN_PLAY_EVENTS`
+      and weight each by its run value in the count, from `rv`. The count is
+      still a feature: it changes the odds of each event (hitters change their
+      approach), while the table supplies what each event is worth in that
+      count. Rare events (triples, errors) are expected to be predicted near
+      their base rates.
+
+    The take model and the whiff / foul / in-play classifier are fitted
+    identically either way, so two fits that differ only in `in_play` differ
+    only in the value of a ball in play.
     """
+    if in_play not in ('regression', 'classifier'):
+        raise ValueError(f"in_play must be 'regression' or 'classifier', not {in_play!r}")
     features = list(features)
     unknown = [f for f in features if f in SWING_ONLY_FEATURES - CONTACT_PRIORS - DAMAGE_PRIORS]
     assert not unknown, f'no routing rule for {unknown}'
@@ -112,14 +155,26 @@ def fit_decomposed(train: pd.DataFrame, features: list[str], rv: pd.Series,
     outcome = train_early_stopped(sw, outcome_features, y, CLASSIFIER)
 
     bip = sw[y == 2]
-    bip_value = train_early_stopped(bip, value_features, bip[target], REGRESSION)
-
     rv = rv.copy()
     rv.index = rv.index.set_levels(rv.index.levels[1].astype(str), level=1)
+    re_in_play = None
+    if in_play == 'regression':
+        bip_value = train_early_stopped(bip, value_features, bip[target], REGRESSION)
+    else:
+        bip_value = train_early_stopped(bip, value_features, in_play_class(bip['outcome']),
+                                        IN_PLAY_CLASSIFIER)
+        re_in_play = rv.unstack('outcome').reindex(columns=list(IN_PLAY_EVENTS))
+        # An event that never happened in some count in the training seasons
+        # (a triple on 3-0, say) takes its average value over all counts; the
+        # classifier gives it a tiny probability there anyway.
+        re_in_play = re_in_play.fillna(re_in_play.mean())
+        assert re_in_play.notna().all().all()
+
     return DecomposedModels(
         take=take, outcome=outcome, bip_value=bip_value,
         take_features=take_features, outcome_features=outcome_features,
         value_features=value_features,
         re_whiff=rv.xs('swinging_strike', level=0), re_foul=rv.xs('foul', level=0),
         rounds={'take': take.num_boosted_rounds(), 'outcome': outcome.num_boosted_rounds(),
-                'bip_value': bip_value.num_boosted_rounds()})
+                'bip_value': bip_value.num_boosted_rounds()},
+        in_play=in_play, re_in_play=re_in_play)

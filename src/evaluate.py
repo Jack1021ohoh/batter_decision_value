@@ -39,6 +39,7 @@ import xgboost as xgb
 
 from . import data as D
 from . import decision as DEC
+from .features import BIP_OUTCOMES
 from .baselines import (SEED, ActionModels, _dmatrix, fit_v1, predict_both, predict_chosen,
                         train_early_stopped)
 
@@ -319,6 +320,42 @@ def outcome_diagnostics(held: pd.DataFrame, bins: int = 20) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index('season')
 
 
+def in_play_diagnostics(held: pd.DataFrame, bins: int = 20) -> pd.DataFrame:
+    """How well the in-play classifier predicts what a ball in play becomes.
+
+    Needs the `p_<event>` columns from a decomposed model fitted with
+    `in_play='classifier'`. Per held-out season, on balls in play: multiclass
+    log loss against that season's own event frequencies, and for each event
+    the mean predicted against the observed rate and a calibration slope
+    (observed rate on predicted, over `bins` quantile bins; 1 is calibrated).
+    Rare events are expected to sit near their base rate, with little spread
+    to calibrate.
+    """
+    from sklearn.metrics import log_loss
+    from .decomposition import IN_PLAY_EVENTS, in_play_class
+
+    bip = held[held['outcome'].astype(str).isin(BIP_OUTCOMES)]
+    cols = [f'p_{e}' for e in IN_PLAY_EVENTS]
+    rows = []
+    for season, s in bip.groupby('season', observed=True):
+        y = in_play_class(s['outcome'])
+        p = s[cols].to_numpy()
+        base = np.bincount(y, minlength=len(IN_PLAY_EVENTS)) / len(y)
+        labels = list(range(len(IN_PLAY_EVENTS)))
+        ll = log_loss(y, p, labels=labels)
+        ll0 = log_loss(y, np.tile(base, (len(y), 1)), labels=labels)
+        for k, event in enumerate(IN_PLAY_EVENTS):
+            key = pd.qcut(pd.Series(p[:, k]).rank(method='first'), bins, labels=False).to_numpy()
+            obs = np.bincount(key, weights=(y == k)) / np.bincount(key)
+            pr = np.bincount(key, weights=p[:, k]) / np.bincount(key)
+            rows.append({'season': season, 'event': event, 'balls in play': len(s),
+                         'observed rate': (y == k).mean(), 'mean predicted': p[:, k].mean(),
+                         'predicted spread (sd)': p[:, k].std(),
+                         'calibration slope': float(np.polyfit(pr, obs, 1)[0]),
+                         'logloss improvement % (all events)': (1 - ll / ll0) * 100})
+    return pd.DataFrame(rows).set_index(['season', 'event'])
+
+
 BINARY = {'objective': 'binary:logistic', 'eval_metric': 'logloss'}
 
 
@@ -395,7 +432,8 @@ def accuracy(run: FoldRun) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index(['action', 'season'])
 
 
-def paired_accuracy(run_a: FoldRun, run_b: FoldRun, labels=('a', 'b')) -> pd.DataFrame:
+def paired_accuracy(run_a: FoldRun, run_b: FoldRun, labels=('a', 'b'),
+                    rows: str = 'all') -> pd.DataFrame:
     """Held-out MSE of two variants on the same pitches: the model-selection test.
 
     Outcome noise adds the same amount to both models' squared error, so the
@@ -405,27 +443,38 @@ def paired_accuracy(run_a: FoldRun, run_b: FoldRun, labels=('a', 'b')) -> pd.Dat
     interval) as a percentage of `b`'s MSE, which is easier to read than
     squared runs. Both runs must use the same folds, so their
     targets are the same.
+
+    `rows='in_play'` scores only the decomposed model's in-play branch: its
+    `bip_value` against the target, on balls in play. That isolates a change
+    to how a ball in play is valued, where the swing-level comparison dilutes
+    it with whiffs and fouls.
     """
-    cols = PITCH_KEY + ['season', 'swing', 'target', 'q_take', 'q_swing']
-    m = run_a.held[cols].merge(run_b.held[cols], on=PITCH_KEY, suffixes=('_a', '_b'))
+    if rows not in ('all', 'in_play'):
+        raise ValueError(f"rows must be 'all' or 'in_play', not {rows!r}")
+    pred = {'take': 'q_take', 'swing': 'q_swing', 'in play': 'bip_value'}
+    cols = PITCH_KEY + ['season', 'swing', 'target', 'outcome'] + (
+        ['q_take', 'q_swing'] if rows == 'all' else ['bip_value'])
+    m = run_a.held[cols].merge(run_b.held[cols].drop(columns='outcome'), on=PITCH_KEY, suffixes=('_a', '_b'))
     assert np.allclose(m['target_a'], m['target_b']), 'runs use different folds or targets'
     la, lb = labels
-    rows = []
-    for action in ('take', 'swing'):
-        g = m[m['swing_a'] == (action == 'swing')]
+    out = []
+    groups = ([('take', ~m['swing_a']), ('swing', m['swing_a'])] if rows == 'all'
+              else [('in play', m['outcome'].astype(str).isin(BIP_OUTCOMES))])
+    for action, mask in groups:
+        g = m[mask]
         for season, s in [*g.groupby('season_a', observed=True), ('pooled', g)]:
             y = s['target_a'].to_numpy()
-            se_a = (s[f'{_q(action)}_a'].to_numpy() - y) ** 2
-            se_b = (s[f'{_q(action)}_b'].to_numpy() - y) ** 2
+            se_a = (s[f'{pred[action]}_a'].to_numpy() - y) ** 2
+            se_b = (s[f'{pred[action]}_b'].to_numpy() - y) ** 2
             lo, hi = _game_mean_interval(s['game_pk'], se_a - se_b)
             d = se_a.mean() - se_b.mean()
-            rows.append({'action': action, 'season': season, 'pitches': len(s),
+            out.append({'action': action, 'season': season, 'pitches': len(s),
                          f'mse {la}': se_a.mean(), f'mse {lb}': se_b.mean(),
                          'diff': d, 'diff_lo': lo, 'diff_hi': hi,
                          'diff_%': d / se_b.mean() * 100,
                          'diff_%_lo': lo / se_b.mean() * 100, 'diff_%_hi': hi / se_b.mean() * 100,
                          'verdict': (f'{la} better' if hi < 0 else f'{lb} better' if lo > 0 else 'tie')})
-    return pd.DataFrame(rows).set_index(['action', 'season'])
+    return pd.DataFrame(out).set_index(['action', 'season'])
 
 
 def calibration_table(run: FoldRun) -> pd.DataFrame:
