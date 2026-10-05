@@ -154,8 +154,12 @@ belong in `FINDINGS.md`, not there.
 - `dashboard/` — a Streamlit app over the 2026 scores (`dashboard` dependency
   group). `build_data.py` aggregates `models/*_2026.parquet` into
   `dashboard/data/` (gitignored), which `app.py` reads; re-run it after the
-  final models are refitted. It only displays saved scores — no model logic
-  lives there.
+  final models are refitted. The scores are the saved ones; the only model
+  there is a league swing propensity (2026, cross-fitted by game), used to
+  rank the best and costliest decisions by value over a typical hitter, since
+  raw `signed_edge` ranks obvious 3-2 takes first. It is display only and
+  never touches a score. It depends only on the pitches, so it is fitted once
+  and saved (`dashboard/data/league_p_swing.parquet`); `--refit` forces a refit.
 - Key EDA results now in `FINDINGS.md`: ABS band is exactly
   27%–53.5% of height; run values drift 0.007 runs on a pitch-weighted
   average and ≤0.021 for the cells covering 95% of pitches (one table per

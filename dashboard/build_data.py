@@ -4,7 +4,13 @@ Reads `models/hitter_scores_2026.parquet` and `models/pitch_values_2026.parquet`
 (written by `notebooks/final_models.ipynb`) and writes `dashboard/data/*.parquet`.
 Re-run whenever the final models are refitted:
 
-    uv run python dashboard/build_data.py
+    uv run python dashboard/build_data.py            # ~1 s once the propensity is saved
+    uv run python dashboard/build_data.py --refit    # refit the propensity too (~25 s)
+
+The league swing propensity depends only on the pitches, not on the final
+models, so it is fitted once and saved to `dashboard/data/league_p_swing.parquet`.
+It is refitted when that file is missing, when it does not cover exactly this
+season's pitches (a re-fetch), or with `--refit`.
 
 Every value is per pitch in runs, from `signed_edge` -- the value of the chosen
 action minus the alternative -- for the personalized output, the only one the
@@ -24,6 +30,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from src import data as D  # noqa: E402
+from src.baselines import SEED, _dmatrix, train_early_stopped  # noqa: E402
+from src.evaluate import BINARY, PITCH_KEY  # noqa: E402
 
 SEASON = 2026
 MODEL_DIR = ROOT / 'models'
@@ -34,6 +42,10 @@ OUTPUTS = ('personalized',)
 X_EDGES = np.round(np.arange(-2.2, 2.2001, 0.4), 3)
 Z_EDGES = np.round(np.arange(-1.25, 2.0001, 0.25), 3)
 TOP_N = 10
+#: League swing propensity: what a typical hitter does with this pitch.
+PROPENSITY_FEATURES = ['plate_x_bat', 'plate_z_norm', 'count', 'pitch_type', 'stand', 'p_throws']
+CROSS_FIT = 5
+PROPENSITY_FILE = OUT / 'league_p_swing.parquet'
 
 
 def load() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -114,25 +126,74 @@ def date_table(p: pd.DataFrame) -> pd.DataFrame:
     return p.groupby(['batter', 'game_date']).agg(n=('swing', 'size'), **sums).reset_index()
 
 
+def league_swing_probability(p: pd.DataFrame) -> pd.Series:
+    """League `P(swing | pitch)` on the season itself, cross-fitted by game.
+
+    Each pitch is scored by a model fitted on the other folds' games, so a
+    hitter's own decision never informs what "a typical hitter" would do.
+    Fitted on this season rather than earlier ones because swing behaviour
+    moved with the ABS zone.
+    """
+    X = p[PROPENSITY_FEATURES].copy()
+    for c in ('pitch_type', 'stand', 'p_throws'):
+        X[c] = X[c].astype('category')
+    X['game_pk'] = p['game_pk']
+    games = p['game_pk'].unique()
+    fold = pd.Series(np.random.default_rng(SEED).permutation(len(games)) % CROSS_FIT, index=games)
+    k = p['game_pk'].map(fold).to_numpy()
+    out = np.empty(len(p))
+    for i in range(CROSS_FIT):
+        tr = k != i
+        booster = train_early_stopped(X[tr], PROPENSITY_FEATURES, p['swing'].to_numpy()[tr].astype(int), BINARY)
+        out[~tr] = booster.predict(_dmatrix(X[~tr], PROPENSITY_FEATURES))
+    return pd.Series(out, index=p.index, name='league_p_swing')
+
+
+def saved_swing_probability(p: pd.DataFrame, refit: bool = False) -> pd.Series:
+    """The saved propensity if it covers exactly these pitches; otherwise fit and save it."""
+    if not refit and PROPENSITY_FILE.exists():
+        saved = pd.read_parquet(PROPENSITY_FILE)
+        if len(saved) == len(p):
+            m = p[PITCH_KEY].merge(saved, on=PITCH_KEY, how='left')['league_p_swing']
+            if m.notna().all():
+                print(f'league swing propensity: loaded {PROPENSITY_FILE.name}')
+                return pd.Series(m.to_numpy(), index=p.index, name='league_p_swing')
+    print('league swing propensity: fitting (5 cross-fitted models) ...')
+    s = league_swing_probability(p)
+    pd.concat([p[PITCH_KEY], s], axis=1).to_parquet(PROPENSITY_FILE, index=False)
+    return s
+
+
 def top_decisions(p: pd.DataFrame, qualified) -> pd.DataFrame:
-    """Each qualified hitter's best and worst decisions, per output."""
+    """Each qualified hitter's best and costliest decisions, per output.
+
+    Ranked by value over a typical hitter, not by `signed_edge` itself. Ranked
+    by `signed_edge`, the best list is almost all 3-2 takes of pitches well off
+    the plate: the most is at stake there, but everyone takes them. A typical
+    hitter swings with probability `p`, so his expected decision value is
+    `(2p - 1) * edge`; the credit is the hitter's `signed_edge` minus that, which
+    is near zero for a choice nearly everyone makes, and largest for a right
+    call most hitters get wrong.
+    """
     cols = ['batter', 'game_date', 'count', 'pitch_type', 'plate_x_bat', 'plate_z_norm',
-            'in_zone', 'swing', 'outcome']
+            'in_zone', 'swing', 'outcome', 'league_p_swing']
     q = p[p['batter'].isin(qualified)]
     frames = []
     for out in OUTPUTS:
         v = f'signed_edge_{out}'
-        keep = cols + [f'q_swing_{out}', f'q_take_{out}', v]
-        best = q.sort_values(v, ascending=False).groupby('batter').head(TOP_N)[keep].assign(kind='best')
-        worst = q.sort_values(v).groupby('batter').head(TOP_N)[keep].assign(kind='worst')
-        frames.append(pd.concat([best, worst]).rename(columns={
+        q = q.assign(over_typical=q[v] - (2 * q['league_p_swing'] - 1) * q[f'edge_{out}'])
+        keep = cols + [f'q_swing_{out}', f'q_take_{out}', v, 'over_typical']
+        best = q.sort_values('over_typical', ascending=False).groupby('batter').head(TOP_N)[keep]
+        worst = q.sort_values('over_typical').groupby('batter').head(TOP_N)[keep]
+        frames.append(pd.concat([best.assign(kind='best'), worst.assign(kind='worst')]).rename(columns={
             v: 'signed_edge', f'q_swing_{out}': 'q_swing', f'q_take_{out}': 'q_take'}).assign(output=out))
     return pd.concat(frames, ignore_index=True)
 
 
-def main() -> None:
+def main(refit: bool = False) -> None:
     hitters, p = load()
     OUT.mkdir(exist_ok=True)
+    p['league_p_swing'] = saved_swing_probability(p, refit)
     tables = {
         'hitters': hitter_table(hitters, p),
         'location': location_grid(p),
@@ -149,4 +210,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    main(refit='--refit' in sys.argv[1:])

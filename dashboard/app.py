@@ -32,7 +32,7 @@ FONT = 16             # chart text, px; the page's base size is in .streamlit/co
 # Savant's percentile palette: blue (poor) through grey to red (great).
 PCT_COLORS = [[0, '#3661ad'], [0.5, '#c8c8c8'], [1, '#d82129']]
 
-st.set_page_config(page_title='Batter Decision Value', page_icon='⚾', layout='wide')
+st.set_page_config(page_title='Batter Decision Value', layout='wide')
 
 
 @st.cache_data
@@ -60,6 +60,16 @@ st.sidebar.caption(f'{SEASON} regular season · {len(H)} qualified hitters (≥5
 page = st.sidebar.radio('Page', ['Leaderboard', 'Hitter', 'Compare', 'About'], key='page')
 st.sidebar.caption('Scores: 100 = average qualified hitter, 10 points = one standard deviation.')
 
+# Streamlit keeps the scroll position across reruns; start a newly opened page at the top.
+if st.session_state.get('shown_page') != page:
+    st.session_state['shown_page'] = page
+    st.session_state['page_views'] = st.session_state.get('page_views', 0) + 1
+    st.html(f'''<script>(() => {{  // view {st.session_state['page_views']}
+      window.__scrollRuns = (window.__scrollRuns || 0) + 1;
+      const main = document.querySelector('[data-testid="stMain"]');
+      [0, 100, 300].forEach(t => setTimeout(() => {{ if (main) main.scrollTo(0, 0); }}, t));
+    }})();</script>''', unsafe_allow_javascript=True)
+
 
 def hitter_picker(label: str, key: str, default: str | None = None) -> int:
     ids = list(NAMES)
@@ -77,8 +87,11 @@ def open_hitter(batters: list[int]) -> None:
 
 
 def styled(fig: go.Figure, **layout) -> go.Figure:
-    fig.update_layout(font=dict(size=FONT), **layout)
-    fig.update_annotations(font_size=FONT + 1)      # subplot titles
+    # Streamlit's chart theme resets the layout font; size each text element explicitly.
+    fig.update_layout(font=dict(size=FONT), legend_font_size=FONT, **layout)
+    fig.update_xaxes(tickfont_size=FONT, title_font_size=FONT)
+    fig.update_yaxes(tickfont_size=FONT, title_font_size=FONT)
+    fig.update_annotations(font_size=FONT + 1)      # subplot titles and side values
     return fig
 
 
@@ -178,12 +191,13 @@ def trend_chart(b: int) -> go.Figure:
 def decisions_table(b: int, kind: str) -> pd.DataFrame:
     d = T['top_decisions']
     d = d[(d['batter'] == b) & (d['output'] == OUT) & (d['kind'] == kind)]
-    d = d.sort_values('signed_edge', ascending=(kind == 'worst'))
+    d = d.sort_values('over_typical', ascending=(kind == 'worst'))
     return pd.DataFrame({
         'date': pd.to_datetime(d['game_date']).dt.date, 'count': d['count'], 'pitch': d['pitch_type'],
         'zone': np.where(d['in_zone'], 'in', 'out'), 'decision': np.where(d['swing'], 'swing', 'take'),
-        'outcome': d['outcome'], 'value of swinging': d['q_swing'].round(3),
-        'value of taking': d['q_take'].round(3), 'decision value': d['signed_edge'].round(3)})
+        'outcome': d['outcome'], 'league swing %': (d['league_p_swing'] * 100).round(0),
+        'over a typical hitter': d['over_typical'].round(3), 'decision value': d['signed_edge'].round(3),
+        'value of swinging': d['q_swing'].round(3), 'value of taking': d['q_take'].round(3)})
 
 
 # --------------------------------------------------------------------------
@@ -226,9 +240,14 @@ elif page == 'Hitter':
     with c2:
         st.subheader('Through the season')
         st.plotly_chart(trend_chart(b), width='stretch')
-    c1, c2 = st.columns(2)
-    c1.subheader('Best decisions'); c1.dataframe(decisions_table(b, 'best'), hide_index=True, width='stretch')
-    c2.subheader('Costliest decisions'); c2.dataframe(decisions_table(b, 'worst'), hide_index=True, width='stretch')
+    st.subheader('Best and costliest decisions')
+    st.caption('Ranked by runs over what a typical hitter would have gained on the same pitch, so a choice '
+               'nearly everyone makes (taking ball four a foot outside) earns almost nothing. '
+               '"League swing %" is how often hitters swing at a pitch like it in this count.')
+    st.markdown('**Best**')
+    st.dataframe(decisions_table(b, 'best'), hide_index=True, width='stretch')
+    st.markdown('**Costliest**')
+    st.dataframe(decisions_table(b, 'worst'), hide_index=True, width='stretch')
 
 elif page == 'Compare':
     st.title('Compare two hitters')
