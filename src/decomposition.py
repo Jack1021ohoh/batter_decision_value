@@ -29,7 +29,9 @@ regression.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -178,3 +180,51 @@ def fit_decomposed(train: pd.DataFrame, features: list[str], rv: pd.Series,
         rounds={'take': take.num_boosted_rounds(), 'outcome': outcome.num_boosted_rounds(),
                 'bip_value': bip_value.num_boosted_rounds()},
         in_play=in_play, re_in_play=re_in_play)
+
+
+# --------------------------------------------------------------------------
+# Saving and loading a fitted model
+# --------------------------------------------------------------------------
+
+_BOOSTERS = ('take', 'outcome', 'bip_value')
+
+
+def save_models(models: DecomposedModels, path, meta: dict | None = None) -> Path:
+    """Write a fitted decomposed model to `path`: one XGBoost file per booster,
+    the run-value lookups as parquet, and a `meta.json` describing the rest.
+
+    `meta` is stored alongside (training seasons, date, ...); it is not needed
+    to load the model.
+    """
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    for name in _BOOSTERS:
+        getattr(models, name).save_model(path / f'{name}.ubj')
+    pd.DataFrame({'whiff': models.re_whiff, 'foul': models.re_foul}).to_parquet(path / 're_swing.parquet')
+    if models.re_in_play is not None:
+        models.re_in_play.to_parquet(path / 're_in_play.parquet')
+    info = {'take_features': models.take_features, 'outcome_features': models.outcome_features,
+            'value_features': models.value_features, 'in_play': models.in_play,
+            'rounds': models.rounds, 'meta': meta or {}}
+    (path / 'meta.json').write_text(json.dumps(info, indent=2, default=str))
+    return path
+
+
+def load_models(path) -> DecomposedModels:
+    """Rebuild a `DecomposedModels` written by `save_models`."""
+    path = Path(path)
+    info = json.loads((path / 'meta.json').read_text())
+    boosters = {}
+    for name in _BOOSTERS:
+        b = xgb.Booster()
+        b.load_model(path / f'{name}.ubj')
+        boosters[name] = b
+    re_swing = pd.read_parquet(path / 're_swing.parquet')
+    re_in_play = (pd.read_parquet(path / 're_in_play.parquet')
+                  if (path / 're_in_play.parquet').exists() else None)
+    return DecomposedModels(
+        take=boosters['take'], outcome=boosters['outcome'], bip_value=boosters['bip_value'],
+        take_features=info['take_features'], outcome_features=info['outcome_features'],
+        value_features=info['value_features'],
+        re_whiff=re_swing['whiff'], re_foul=re_swing['foul'], rounds=info['rounds'],
+        in_play=info['in_play'], re_in_play=re_in_play)

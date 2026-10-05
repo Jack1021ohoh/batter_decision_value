@@ -21,3 +21,7 @@ __pycache__/
 # paths that were abandoned as the work went on, and a stale plan misleads a
 # reader of the finished project. The durable results live in FINDINGS.md.
 IMPROVEMENT_PLAN.md
+
+# Saved final models (XGBoost files + metadata) and the scores they produce.
+# Rebuilt by notebooks/final_models.ipynb; binary and season-specific.
+models/
