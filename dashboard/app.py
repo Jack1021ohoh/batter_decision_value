@@ -228,31 +228,37 @@ if page == 'Leaderboard':
                                 'hitter': st.column_config.TextColumn(width=NAME_WIDTH, pinned=True)},
                  on_select=partial(open_hitter, t['batter'].tolist()), selection_mode='single-cell')
     # The table is drawn on a canvas, so CSS cannot target a column: show the pointer
-    # cursor while the mouse is over a name, from the pinned geometry above.
+    # cursor while the mouse is over a name, from the pinned geometry above. The cursor
+    # you see is the one on the grid's scroll layer, which sits over the canvas.
     st.html(f'''<script>(() => {{
-      window.__nameCells = {{left: {RANK_WIDTH}, right: {RANK_WIDTH + NAME_WIDTH},
-                             top: {ROW_HEIGHT}, bottom: {ROW_HEIGHT * (len(board) + 1)}}};
-      if (window.__nameHover) return;
-      window.__nameHover = true;
+      const cells = {{left: {RANK_WIDTH}, right: {RANK_WIDTH + NAME_WIDTH},
+                     top: {ROW_HEIGHT}, bottom: {ROW_HEIGHT * (len(board) + 1)}}};
+      // Replace any earlier version's listener, so an open tab picks up changes.
+      if (window.__nameHover && window.__nameHover.onMove) {{
+        document.removeEventListener('mousemove', window.__nameHover.onMove);
+        window.__nameHover.observer.disconnect();
+      }}
       // The grid sets its own cursor as the mouse moves; watch for that and
       // put the pointer back while the mouse is over a name.
       let want = false, watched = null;
-      const apply = c => {{ if (want && c.style.cursor !== 'pointer') c.style.cursor = 'pointer'; }};
+      const apply = el => {{ if (want && el.style.cursor !== 'pointer') el.style.cursor = 'pointer'; }};
       const observer = new MutationObserver(() => watched && apply(watched));
-      document.addEventListener('mousemove', e => {{
-        const canvas = document.querySelector('.st-key-leaderboard [data-testid="data-grid-canvas"]');
-        if (!canvas) return;
-        if (canvas !== watched) {{
+      const onMove = e => {{
+        const layer = document.querySelector('.st-key-leaderboard .dvn-scroller');
+        if (!layer) return;
+        if (layer !== watched) {{
           observer.disconnect();
-          observer.observe(canvas, {{attributes: true, attributeFilter: ['style']}});
-          watched = canvas;
+          observer.observe(layer, {{attributes: true, attributeFilter: ['style']}});
+          watched = layer;
         }}
-        const r = canvas.getBoundingClientRect(), c = window.__nameCells;
+        const r = layer.getBoundingClientRect();
         const x = e.clientX - r.left, y = e.clientY - r.top;
-        const on = x >= c.left && x < c.right && y >= c.top && y < Math.min(c.bottom, r.height);
-        if (on) {{ want = true; apply(canvas); }}
-        else if (want) {{ want = false; canvas.style.cursor = 'default'; }}
-      }});
+        const on = x >= cells.left && x < cells.right && y >= cells.top && y < Math.min(cells.bottom, r.height);
+        if (on) {{ want = true; apply(layer); }}
+        else if (want) {{ want = false; layer.style.cursor = 'default'; }}
+      }};
+      document.addEventListener('mousemove', onMove);
+      window.__nameHover = {{onMove, observer}};
     }})();</script>''', unsafe_allow_javascript=True)
 
 elif page == 'Hitter':
