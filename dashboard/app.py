@@ -11,6 +11,7 @@ alternative, shown per 100 pitches.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,9 @@ OUTPUT_LABELS = {'personalized': 'Personalized — for this hitter', 'generic': 
 PLATE_HALF_WIDTH = 17 / 24
 MIN_CELL = 3          # hide map cells with fewer pitches than this
 ROLL_GAMES = 15
+FONT = 16             # chart text, px; the page's base size is in .streamlit/config.toml
+# Savant's percentile palette: blue (poor) through grey to red (great).
+PCT_COLORS = [[0, '#3661ad'], [0.5, '#c8c8c8'], [1, '#d82129']]
 
 st.set_page_config(page_title='Batter Decision Value', page_icon='⚾', layout='wide')
 
@@ -51,15 +55,30 @@ NAMES = dict(zip(H['batter'], H['name'].fillna(H['batter'].astype(str))))
 
 st.sidebar.title('Batter Decision Value')
 st.sidebar.caption(f'{SEASON} regular season · {len(H)} qualified hitters (≥500 pitches)')
-page = st.sidebar.radio('Page', ['Leaderboard', 'Hitter', 'Compare', 'About'])
+page = st.sidebar.radio('Page', ['Leaderboard', 'Hitter', 'Compare', 'About'], key='page')
 out = st.sidebar.radio('Output', list(OUTPUT_LABELS), format_func=OUTPUT_LABELS.get)
 st.sidebar.caption('Scores: 100 = average qualified hitter, 10 points = one standard deviation.')
 
 
 def hitter_picker(label: str, key: str, default: str | None = None) -> int:
     ids = list(NAMES)
-    idx = ids.index(next((b for b, n in NAMES.items() if n == default), ids[0])) if default else 0
-    return st.selectbox(label, ids, index=idx, format_func=NAMES.get, key=key)
+    if st.session_state.get(key) not in NAMES:     # first visit, or set from the leaderboard
+        st.session_state[key] = next((b for b, n in NAMES.items() if n == default), ids[0])
+    return st.selectbox(label, ids, format_func=NAMES.get, key=key)
+
+
+def open_hitter(batters: list[int]) -> None:
+    """Leaderboard row click: switch to that hitter's page."""
+    rows = st.session_state['leaderboard'].selection.rows
+    if rows:
+        st.session_state['hitter'] = batters[rows[0]]
+        st.session_state['page'] = 'Hitter'
+
+
+def styled(fig: go.Figure, **layout) -> go.Figure:
+    fig.update_layout(font=dict(size=FONT), **layout)
+    fig.update_annotations(font_size=FONT + 1)      # subplot titles
+    return fig
 
 
 def score_cards(b: int, cols=None) -> None:
@@ -75,6 +94,40 @@ def score_cards(b: int, cols=None) -> None:
     cols[4].metric('Zone-swing rate', f"{r['zone_swing_rate']:.1%}", help='Swings at pitches in the zone')
 
 
+def percentile_chart(b: int) -> go.Figure:
+    """Savant-style percentile rankings among qualified hitters (100 = best)."""
+    r = H.set_index('batter').loc[b]
+    other = 'generic' if out == 'personalized' else 'personalized'
+    runs = lambda v: f'{v * 100:+.2f}'
+    rows = [  # label, percentile column, value shown
+        (f'Decision score ({out})', f'pct_{out}', f'{r[out]:.1f}'),
+        (f'Decision score ({other})', f'pct_{other}', f'{r[other]:.1f}'),
+        ('Decisions in the zone', f'pct_zone_value_{out}', runs(r[f'zone_value_{out}'])),
+        ('Decisions out of the zone', f'pct_chase_value_{out}', runs(r[f'chase_value_{out}'])),
+        ('Two-strike decisions', f'pct_two_strike_value_{out}', runs(r[f'two_strike_value_{out}'])),
+        ('Chase %', 'pct_chase_rate', f"{r['chase_rate']:.1%}"),
+        ('Whiff %', 'pct_whiff_rate', f"{r['whiff_rate']:.1%}"),
+    ]
+    labels = [lab for lab, _, _ in rows][::-1]
+    pct = [r[c] for _, c, _ in rows][::-1]
+    vals = [v for _, _, v in rows][::-1]
+    fig = go.Figure()
+    for y in labels:   # the grey track
+        fig.add_shape(type='line', x0=0, x1=100, y0=y, y1=y, line=dict(color='#e3e3e3', width=10), layer='below')
+    fig.add_trace(go.Bar(x=pct, y=labels, orientation='h', width=0.18, showlegend=False, hoverinfo='skip',
+                         marker=dict(color=pct, cmin=0, cmax=100, colorscale=PCT_COLORS)))
+    fig.add_trace(go.Scatter(
+        x=pct, y=labels, mode='markers+text', text=[f'{p:.0f}' for p in pct], showlegend=False,
+        textfont=dict(color='white', size=FONT - 2),
+        marker=dict(size=34, color=pct, cmin=0, cmax=100, colorscale=PCT_COLORS, line=dict(color='white', width=2)),
+        customdata=vals, hovertemplate='%{y}: %{customdata} · %{x:.0f}th percentile<extra></extra>'))
+    for y, v in zip(labels, vals):
+        fig.add_annotation(x=106, y=y, text=v, showarrow=False, xanchor='left')
+    fig.update_xaxes(range=[-4, 122], showgrid=False, zeroline=False, showticklabels=False)
+    fig.update_yaxes(showgrid=False, automargin=True, ticksuffix='  ')
+    return styled(fig, height=60 * len(rows) + 40, margin=dict(t=10, b=10, l=230, r=10), bargap=0)
+
+
 def decision_map(b: int, title: str = '') -> go.Figure:
     """Mean decision value per location, swings and takes side by side."""
     loc = T['location']
@@ -87,7 +140,7 @@ def decision_map(b: int, title: str = '') -> go.Figure:
         n = a.pivot_table(index='z', columns='x', values='n').reindex(index=zs, columns=xs)
         fig.add_trace(go.Heatmap(
             x=xs, y=zs, z=grid.values, customdata=n.values, zmid=0, zmin=-12, zmax=12,
-            colorscale='RdBu', colorbar=dict(title='runs / 100', len=0.8) if k == 2 else None,
+            colorscale='RdBu_r', colorbar=dict(title='runs / 100', len=0.8) if k == 2 else None,
             showscale=k == 2,
             hovertemplate='x %{x:.1f} ft · height %{y:.2f} of zone<br>value %{z:+.1f} runs / 100 pitches'
                           '<br>%{customdata} pitches<extra></extra>'), 1, k)
@@ -95,8 +148,7 @@ def decision_map(b: int, title: str = '') -> go.Figure:
                       line=dict(color='black', width=2), row=1, col=k)
         fig.update_xaxes(title_text='← outside   ·   inside → (ft)', range=[-2.2, 2.2], row=1, col=k)
         fig.update_yaxes(title_text='height (0 = bottom, 1 = top of zone)', range=[-1.25, 2.0], row=1, col=k)
-    fig.update_layout(height=430, margin=dict(t=60, b=20), title=title)
-    return fig
+    return styled(fig, height=500, margin=dict(t=60, b=70), title=title)
 
 
 def count_chart(b: int) -> go.Figure:
@@ -110,9 +162,8 @@ def count_chart(b: int) -> go.Figure:
         go.Scatter(x=order, y=d[f'league_{out}'] * 100, name='league', mode='markers',
                    marker=dict(symbol='line-ew-open', size=24, color='black', line=dict(width=2))),
     ])
-    fig.update_layout(height=320, yaxis_title='decision value, runs / 100 pitches', margin=dict(t=30, b=20),
-                      legend=dict(orientation='h', y=1.12))
-    return fig
+    return styled(fig, height=360, yaxis_title='runs / 100 pitches', margin=dict(t=30, b=20),
+                  legend=dict(orientation='h', y=1.12))
 
 
 def trend_chart(b: int) -> go.Figure:
@@ -122,9 +173,8 @@ def trend_chart(b: int) -> go.Figure:
     fig = go.Figure([go.Scatter(x=d['game_date'], y=roll * 100, mode='lines', name=f'{ROLL_GAMES}-game rolling'),
                      go.Scatter(x=d['game_date'], y=[league * 100] * len(d), mode='lines', name='league',
                                 line=dict(dash='dot', color='grey'))])
-    fig.update_layout(height=300, yaxis_title='runs / 100 pitches', margin=dict(t=30, b=20),
-                      legend=dict(orientation='h', y=1.15))
-    return fig
+    return styled(fig, height=360, yaxis_title='runs / 100 pitches', margin=dict(t=30, b=20),
+                  legend=dict(orientation='h', y=1.15))
 
 
 def decisions_table(b: int, kind: str) -> pd.DataFrame:
@@ -144,7 +194,7 @@ def decisions_table(b: int, kind: str) -> pd.DataFrame:
 
 if page == 'Leaderboard':
     st.title(f'{SEASON} leaderboard')
-    st.caption(OUTPUT_LABELS[out])
+    st.caption(f'{OUTPUT_LABELS[out]} · click a row to open the hitter\'s page')
     c1, c2 = st.columns([2, 1])
     query = c1.text_input('Search hitter', '')
     min_p = c2.slider('Minimum pitches', 500, int(H['pitches'].max()), 500, step=100)
@@ -156,16 +206,21 @@ if page == 'Leaderboard':
         'percentile': t[f'pct_{out}'], f'{other} score': t[other].round(1),
         'personalized − generic': t['gap'].round(1), 'pitches': t['pitches'],
         'chase %': (t['chase_rate'] * 100).round(1), 'zone swing %': (t['zone_swing_rate'] * 100).round(1),
-    }), hide_index=True, width='stretch', height=640)
+    }), hide_index=True, width='stretch', height=640, key='leaderboard',
+        on_select=partial(open_hitter, t['batter'].tolist()), selection_mode='single-row')
 
 elif page == 'Hitter':
     b = hitter_picker('Hitter', 'hitter', default=H.sort_values(out, ascending=False)['name'].iloc[0])
     st.title(NAMES[b])
     score_cards(b)
+    st.subheader('Percentile rankings')
+    st.caption(f'Among the {len(H)} qualified hitters; 100 = best. Decision values are runs per 100 pitches '
+               'gained over the alternative action.')
+    st.plotly_chart(percentile_chart(b), width='stretch')
     st.subheader('Where his decisions gained or cost runs')
     st.caption('Average value of the chosen action over the alternative, per 100 pitches, by location '
-               '(batter\'s view; the box is the strike zone). Blue = better than the alternative, '
-               f'red = worse. Cells with fewer than {MIN_CELL} pitches are hidden.')
+               '(batter\'s view; the box is the strike zone). Red = better than the alternative, '
+               f'blue = worse. Cells with fewer than {MIN_CELL} pitches are hidden.')
     st.plotly_chart(decision_map(b), width='stretch')
     c1, c2 = st.columns(2)
     with c1:
@@ -186,10 +241,15 @@ elif page == 'Compare':
         a = hitter_picker('First hitter', 'cmp_a', default=ranked.iloc[0])
     with c2:
         b = hitter_picker('Second hitter', 'cmp_b', default=ranked.iloc[-1])
-    for who in (a, b):
+    cols = st.columns(2)
+    for i, (col, who) in enumerate(zip(cols, (a, b))):
+        with col:
+            st.subheader(NAMES[who])
+            st.plotly_chart(percentile_chart(who), width='stretch', key=f'pct_{i}')
+    for i, who in enumerate((a, b)):
         st.subheader(NAMES[who])
         score_cards(who)
-        st.plotly_chart(decision_map(who), width='stretch')
+        st.plotly_chart(decision_map(who), width='stretch', key=f'map_{i}')
 
 else:
     st.title('About')

@@ -1,0 +1,4 @@
+# Streamlit reads this from the directory it is launched in -- run the
+# dashboard from the repository root.
+[theme]
+baseFontSize = 18

@@ -44,21 +44,39 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     return hitters, p
 
 
+def percentile(s: pd.Series, higher_is_better: bool = True) -> pd.Series:
+    """Percentile rank 1-100 among qualified hitters, as Savant shows it; 100 is best."""
+    return np.ceil(s.rank(ascending=higher_is_better, pct=True) * 100)
+
+
 def hitter_table(hitters: pd.DataFrame, p: pd.DataFrame) -> pd.DataFrame:
     """One row per qualified hitter: both scores, ranks, percentiles, swing rates."""
     h = hitters.copy()
     for out in OUTPUTS:
         h[f'rank_{out}'] = h[out].rank(ascending=False, method='min').astype(int)
-        h[f'pct_{out}'] = (h[out].rank(pct=True) * 100).round(0)
+        h[f'pct_{out}'] = percentile(h[out])
     h['gap'] = h['personalized'] - h['generic']
     g = p.groupby('batter')
+    swings = p[p['swing']]
+    two_strike = p[p['count'].str.endswith('-2')]
     rates = pd.DataFrame({
         'chase_rate': p[~p['in_zone']].groupby('batter')['swing'].mean(),
         'zone_swing_rate': p[p['in_zone']].groupby('batter')['swing'].mean(),
         'swing_rate': g['swing'].mean(),
+        'whiff_rate': swings.groupby('batter')['outcome'].apply(lambda o: o.eq('swinging_strike').mean()),
         'zone_pct': g['in_zone'].mean(),
     })
-    return h.merge(rates, left_on='batter', right_index=True, how='left')
+    for out in OUTPUTS:
+        v = f'signed_edge_{out}'
+        rates[f'zone_value_{out}'] = p[p['in_zone']].groupby('batter')[v].mean()
+        rates[f'chase_value_{out}'] = p[~p['in_zone']].groupby('batter')[v].mean()
+        rates[f'two_strike_value_{out}'] = two_strike.groupby('batter')[v].mean()
+    h = h.merge(rates, left_on='batter', right_index=True, how='left')
+    for col in [c for c in h if c.startswith(('zone_value_', 'chase_value_', 'two_strike_value_'))]:
+        h[f'pct_{col}'] = percentile(h[col])
+    for col in ('chase_rate', 'whiff_rate'):                  # lower is better
+        h[f'pct_{col}'] = percentile(h[col], higher_is_better=False)
+    return h
 
 
 def location_grid(p: pd.DataFrame) -> pd.DataFrame:

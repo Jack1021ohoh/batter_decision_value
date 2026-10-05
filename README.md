@@ -246,7 +246,8 @@ and `features.season_contact_priors`. The 2026 scores are already in
 ### Dashboard
 
 A Streamlit app over the 2026 scores, for either output: a searchable
-leaderboard; a page per hitter with his decision value by location (swings and
+leaderboard (click a row to open that hitter); a page per hitter with
+Savant-style percentile rankings, his decision value by location (swings and
 takes), by count and through the season, and his best and costliest decisions;
 two hitters side by side; and a page explaining the method.
 
@@ -258,7 +259,8 @@ uv run streamlit run dashboard/app.py
 
 `build_data.py` aggregates `models/*_2026.parquet` into the small tables the
 app reads (`dashboard/data/`, gitignored); re-run it whenever the final models
-are refitted.
+are refitted. Launch from the repository root: Streamlit reads its theme (the
+larger base font) from `.streamlit/config.toml` in the launch directory.
 
 ## Layout
 
@@ -282,6 +284,7 @@ notebooks/final_models.ipynb      final models: fitted, saved, scored on 2026
 
 dashboard/build_data.py           aggregates the 2026 scores into the dashboard's tables
 dashboard/app.py                  the Streamlit dashboard
+.streamlit/config.toml            the dashboard's theme (base font size)
 
 models/                           saved final models and 2026 scores (gitignored)
 dashboard/data/                   the dashboard's tables (gitignored)
