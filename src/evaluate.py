@@ -519,6 +519,42 @@ def recalibrate_last_season(run: FoldRun) -> tuple[FoldRun, pd.DataFrame]:
     return FoldRun(held=held, models=run.models, folds=run.folds), maps.set_index(['season', 'action'])
 
 
+def swing_shrink_factor(run_p: FoldRun, run_g: FoldRun, seasons=None) -> float:
+    """Least-squares k for `q_g + k * (q_p - q_g)` on held-out swings.
+
+    Pulls a personalized swing model (`run_p`) part-way back toward the
+    generic one (`run_g`) on the same pitches: k = 1 keeps the personalized
+    values, k = 0 the generic ones. Fitted only on `seasons` (all held-out
+    seasons if None), so k can be estimated without the season it is applied to.
+    """
+    cols = PITCH_KEY + ['season', 'swing', 'target', 'q_swing']
+    m = run_p.held[cols].merge(run_g.held[PITCH_KEY + ['q_swing']], on=PITCH_KEY, suffixes=('_p', '_g'))
+    m = m[m['swing']]
+    if seasons is not None:
+        m = m[m['season'].isin(list(seasons))]
+    d = (m['q_swing_p'] - m['q_swing_g']).to_numpy()
+    return float(((m['target'] - m['q_swing_g']).to_numpy() * d).sum() / (d * d).sum())
+
+
+def shrink_swing(run_p: FoldRun, run_g: FoldRun, k) -> FoldRun:
+    """`run_p` with Q_swing pulled toward `run_g`'s: q_g + k * (q_p - q_g).
+
+    `k` is one number, or a {season: k} mapping so each held-out season can use
+    a k fitted without it. Q_take is unchanged; edges and every decision score
+    are recomputed.
+    """
+    held = run_p.held.copy()
+    g = held[PITCH_KEY].merge(run_g.held[PITCH_KEY + ['q_swing']], on=PITCH_KEY, how='left')
+    q_g = g['q_swing'].to_numpy()
+    assert not np.isnan(q_g).any(), 'generic run is missing pitches'
+    kk = held['season'].map(k).to_numpy(dtype=float) if isinstance(k, dict) else float(k)
+    held['q_swing'] = q_g + kk * (held['q_swing'].to_numpy() - q_g)
+    held['edge'] = held['q_swing'] - held['q_take']
+    held['y_pred'] = np.where(held['swing'], held['q_swing'], held['q_take'])
+    held = DEC.add_scores(held)
+    return FoldRun(held=held, models=run_p.models, folds=run_p.folds)
+
+
 def swing_propensity(df: pd.DataFrame, features: list[str], folds) -> pd.Series:
     """League `P(swing | pitch)` for every held-out pitch, fitted per fold on its
     training seasons. Indexed by `PITCH_KEY`."""
