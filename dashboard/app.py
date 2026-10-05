@@ -28,6 +28,9 @@ OUT = 'personalized'
 PLATE_HALF_WIDTH = 17 / 24
 MIN_CELL = 3          # hide map cells with fewer pitches than this
 ROLL_GAMES = 15
+# Leaderboard geometry, fixed so the page script knows where the names are drawn:
+# rank and hitter are pinned first, at these widths (px).
+RANK_WIDTH, NAME_WIDTH, ROW_HEIGHT = 70, 210, 40
 FONT = 16             # chart text, px; the page's base size is in .streamlit/config.toml
 # Savant's percentile palette: blue (poor) through grey to red (great).
 PCT_COLORS = [[0, '#3661ad'], [0.5, '#c8c8c8'], [1, '#d82129']]
@@ -220,8 +223,37 @@ if page == 'Leaderboard':
     })
     # Names in link colour: a click on one opens that hitter (single-cell selection, no checkboxes).
     st.dataframe(board.style.format(precision=1).set_properties(subset=['hitter'], color='#1c62c4'),
-                 hide_index=True, width='stretch', height=640, key='leaderboard',
+                 hide_index=True, width='stretch', height=640, key='leaderboard', row_height=ROW_HEIGHT,
+                 column_config={'rank': st.column_config.NumberColumn(width=RANK_WIDTH, pinned=True),
+                                'hitter': st.column_config.TextColumn(width=NAME_WIDTH, pinned=True)},
                  on_select=partial(open_hitter, t['batter'].tolist()), selection_mode='single-cell')
+    # The table is drawn on a canvas, so CSS cannot target a column: show the pointer
+    # cursor while the mouse is over a name, from the pinned geometry above.
+    st.html(f'''<script>(() => {{
+      window.__nameCells = {{left: {RANK_WIDTH}, right: {RANK_WIDTH + NAME_WIDTH},
+                             top: {ROW_HEIGHT}, bottom: {ROW_HEIGHT * (len(board) + 1)}}};
+      if (window.__nameHover) return;
+      window.__nameHover = true;
+      // The grid sets its own cursor as the mouse moves; watch for that and
+      // put the pointer back while the mouse is over a name.
+      let want = false, watched = null;
+      const apply = c => {{ if (want && c.style.cursor !== 'pointer') c.style.cursor = 'pointer'; }};
+      const observer = new MutationObserver(() => watched && apply(watched));
+      document.addEventListener('mousemove', e => {{
+        const canvas = document.querySelector('.st-key-leaderboard [data-testid="data-grid-canvas"]');
+        if (!canvas) return;
+        if (canvas !== watched) {{
+          observer.disconnect();
+          observer.observe(canvas, {{attributes: true, attributeFilter: ['style']}});
+          watched = canvas;
+        }}
+        const r = canvas.getBoundingClientRect(), c = window.__nameCells;
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        const on = x >= c.left && x < c.right && y >= c.top && y < Math.min(c.bottom, r.height);
+        if (on) {{ want = true; apply(canvas); }}
+        else if (want) {{ want = false; canvas.style.cursor = 'default'; }}
+      }});
+    }})();</script>''', unsafe_allow_javascript=True)
 
 elif page == 'Hitter':
     b = hitter_picker('Hitter', 'hitter', default=H.sort_values(OUT, ascending=False)['name'].iloc[0])
