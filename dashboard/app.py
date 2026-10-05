@@ -79,10 +79,10 @@ def hitter_picker(label: str, key: str, default: str | None = None) -> int:
 
 
 def open_hitter(batters: list[int]) -> None:
-    """Leaderboard row click: switch to that hitter's page."""
-    rows = st.session_state['leaderboard'].selection.rows
-    if rows:
-        st.session_state['hitter'] = batters[rows[0]]
+    """Leaderboard click on a name: switch to that hitter's page."""
+    cells = st.session_state['leaderboard'].selection.cells
+    if cells and cells[0][1] == 'hitter':
+        st.session_state['hitter'] = batters[cells[0][0]]
         st.session_state['page'] = 'Hitter'
 
 
@@ -206,19 +206,22 @@ def decisions_table(b: int, kind: str) -> pd.DataFrame:
 
 if page == 'Leaderboard':
     st.title(f'{SEASON} leaderboard')
-    st.caption('Click a row to open the hitter\'s page.')
+    st.caption('Click a name to open the hitter\'s page.')
     c1, c2 = st.columns([2, 1])
     query = c1.text_input('Search hitter', '')
     min_p = c2.slider('Minimum pitches', 500, int(H['pitches'].max()), 500, step=100)
     t = H[(H['pitches'] >= min_p) & H['name'].fillna('').str.contains(query, case=False)]
     t = t.sort_values(OUT, ascending=False)
-    st.dataframe(pd.DataFrame({
-        'rank': t[f'rank_{OUT}'], 'hitter': t['name'], 'score': t[OUT].round(1),
-        'percentile': t[f'pct_{OUT}'], 'pitches': t['pitches'],
-        'chase %': (t['chase_rate'] * 100).round(1), 'zone swing %': (t['zone_swing_rate'] * 100).round(1),
-        'whiff %': (t['whiff_rate'] * 100).round(1),
-    }), hide_index=True, width='stretch', height=640, key='leaderboard',
-        on_select=partial(open_hitter, t['batter'].tolist()), selection_mode='single-row')
+    board = pd.DataFrame({
+        'rank': t[f'rank_{OUT}'], 'hitter': t['name'], 'score': t[OUT],
+        'percentile': t[f'pct_{OUT}'].astype(int), 'pitches': t['pitches'],
+        'chase %': t['chase_rate'] * 100, 'zone swing %': t['zone_swing_rate'] * 100,
+        'whiff %': t['whiff_rate'] * 100,
+    })
+    # Names in link colour: a click on one opens that hitter (single-cell selection, no checkboxes).
+    st.dataframe(board.style.format(precision=1).set_properties(subset=['hitter'], color='#1c62c4'),
+                 hide_index=True, width='stretch', height=640, key='leaderboard',
+                 on_select=partial(open_hitter, t['batter'].tolist()), selection_mode='single-cell')
 
 elif page == 'Hitter':
     b = hitter_picker('Hitter', 'hitter', default=H.sort_values(OUT, ascending=False)['name'].iloc[0])
