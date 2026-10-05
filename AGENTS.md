@@ -96,7 +96,9 @@ belong in `FINDINGS.md`, not there.
     `outcome_diagnostics` for the decomposed classifier,
     `in_play_diagnostics` for the in-play event classifier;
     `paired_accuracy(..., rows='in_play')` scores the in-play branch alone.
-    `recalibrate_last_season` was tried and rejected (over-corrects).
+    `recalibrate_last_season` was tried and rejected (over-corrects);
+    `swing_shrink_factor` / `shrink_swing` fit and apply the shrink toward
+    the generic model, which worked.
   - **Guardrails:** `harness()` returns one scorecard row (model columns, then
     construct validity, `split_half`, `yoy_reliability`,
     `zone_pct_correlation` — the SOTO test — and `predictive_validity`);
@@ -113,6 +115,11 @@ belong in `FINDINGS.md`, not there.
   `Σ P(event)·RE(event, count)` over six events; `'regression'` (the default,
   kept so v4 reproduces) regresses its run value. `save_models` /
   `load_models` write and rebuild a fitted model (XGBoost files + metadata).
+  The personalized output is `ShrunkModels`: its swing value pulled toward the
+  generic one, `q_g + k·(q_p − q_g)` with `PERSONALIZED_SHRINK = 0.6846`
+  (fitted in v6). `save_shrink` records that with a saved model, and
+  `load_output(models_dir, name)` returns either output ready to use — the
+  personalized one already shrunk.
 - `src/decision.py` — the per-pitch scores, swappable: `chosen_value`,
   `signed_edge`, `regret`, `close_weighted`, `correct_decision`.
   `DEFAULT_SCORE = 'signed_edge'` — keeps the run-value magnitude, as every
@@ -133,9 +140,10 @@ belong in `FINDINGS.md`, not there.
 - `notebooks/` — `data_fetch.ipynb` (the pulls), `eda.ipynb` (§1–§7, ends in a
   decisions table), `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb`
   (the patch), `v4_decomposition.ipynb` (Track B), `v5_in_play.ipynb` (the
-  in-play event classifier and the two outputs), and `final_models.ipynb` (the
-  outputs refitted on every development season, saved to `models/`, and scored
-  on 2026). All do `sys.path.insert(0, '..')`. The model-selection notebooks
+  in-play event classifier and the two outputs), `v6_shrink.ipynb` (the
+  personalized swing values shrunk toward the generic ones), and
+  `final_models.ipynb` (the outputs refitted on every development season,
+  saved to `models/`, and scored on 2026). All do `sys.path.insert(0, '..')`. The model-selection notebooks
   load 2021–2025 only; `final_models.ipynb` also loads 2026, to score it.
 - **Keep each experiment in its own notebook.** A notebook re-runs end to end,
   so adding a section to an existing one ties every small decision to
@@ -202,9 +210,10 @@ belong in `FINDINGS.md`, not there.
     classifier, on the full pitch frame, with `signed_edge`: **generic** (no
     hitter features — a good decision for a typical hitter) and
     **personalized** (+ hot zone to the in-play model, + whiff/foul priors to
-    the outcome classifier — a good decision for this hitter; the most accurate
-    model found). The personalized score tracks plate discipline less, by
-    design. The event classifier beat the in-play regression for the
+    the outcome classifier, swing value shrunk two thirds of the way from the
+    generic toward the personalized prediction, k = 0.68 — a good decision for
+    this hitter; the most accurate model found). The personalized score tracks
+    plate discipline a little less, by design. The event classifier beat the in-play regression for the
     personalized output and tied for the generic one, which uses it by decision
     so both outputs differ only in hitter features (v5).
   - **The decomposition beats the direct regression on accuracy** (swing MSE
@@ -215,9 +224,12 @@ belong in `FINDINGS.md`, not there.
     `correct_decision` measures better on construct validity; `signed_edge` is
     kept because it retains the run-value magnitude. Its pitch-mix
     contamination is real and unsolved.
-  - **Calibration is close, not exact** (swing slopes 0.94–1.09, varying by
-    fold). Two recalibration maps — on early-stopping games, and on the
-    previous held-out season — both failed; models are used as fitted.
+  - **Calibration:** two linear recalibration maps (on early-stopping games,
+    on the previous held-out season) failed — the generic model's residual
+    moves from fold to fold. The personalized model's over-spread was steady,
+    and shrinking toward the generic model fixed it (slopes 0.98–1.04 held
+    out, 0.996 on 2026). Hitter adjustments must be shrunk, not taken at full
+    strength.
   - The take model **is** a called-strike probability (median R² 0.991, held
     out). Hitter features in it made it *less* accurate every time; they go to
     the swing side only.

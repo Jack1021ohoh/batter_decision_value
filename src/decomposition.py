@@ -228,3 +228,62 @@ def load_models(path) -> DecomposedModels:
         value_features=info['value_features'],
         re_whiff=re_swing['whiff'], re_foul=re_swing['foul'], rounds=info['rounds'],
         in_play=info['in_play'], re_in_play=re_in_play)
+
+
+# --------------------------------------------------------------------------
+# The personalized output: shrunk toward the generic model
+# --------------------------------------------------------------------------
+
+#: Share of what personalization adds to the swing value that is kept:
+#: q_swing = q_generic + k * (q_personalized - q_generic). Fitted on held-out
+#: 2023-25 swings in `v6_shrink.ipynb` (per-season values 0.66-0.73); k = 1
+#: over-spread the personalized swing values by about 5%.
+PERSONALIZED_SHRINK = 0.6846
+
+
+@dataclass
+class ShrunkModels:
+    """The personalized output: its swing value pulled toward the generic one.
+
+    Same `.predict(df, action)` signature as `DecomposedModels`, so
+    `predict_both` and every decision score work on it unchanged. Takes come
+    from the personalized model; `df` needs the personalized model's features,
+    which include the generic model's.
+    """
+    personalized: DecomposedModels
+    generic: DecomposedModels
+    k: float = PERSONALIZED_SHRINK
+
+    def predict(self, df: pd.DataFrame, action: str) -> np.ndarray:
+        q_p = self.personalized.predict(df, action)
+        if action == 'take':
+            return q_p
+        q_g = self.generic.predict(df, 'swing')
+        return q_g + self.k * (q_p - q_g)
+
+    def components(self, df: pd.DataFrame) -> pd.DataFrame:
+        """The personalized model's own pieces (before shrinking)."""
+        return self.personalized.components(df)
+
+
+def save_shrink(path, k: float = PERSONALIZED_SHRINK, generic: str = 'generic') -> Path:
+    """Record in a saved personalized model that it is shrunk toward `generic`."""
+    path = Path(path)
+    (path / 'shrink.json').write_text(json.dumps({'k': k, 'generic': generic}, indent=2))
+    return path
+
+
+def load_output(model_dir, name: str):
+    """Load a saved output by name -- `'generic'` or `'personalized'`.
+
+    A personalized model saved with `save_shrink` comes back as `ShrunkModels`,
+    paired with the generic model it is shrunk toward; anything else as
+    `DecomposedModels`.
+    """
+    model_dir = Path(model_dir)
+    model = load_models(model_dir / name)
+    shrink = model_dir / name / 'shrink.json'
+    if not shrink.exists():
+        return model
+    info = json.loads(shrink.read_text())
+    return ShrunkModels(personalized=model, generic=load_models(model_dir / info['generic']), k=info['k'])

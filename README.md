@@ -31,6 +31,7 @@ This framework separates the two.
 | `notebooks/v3.ipynb` | the metric choice, the pitch-frame and hot-zone ladder, the take-model check, contamination |
 | `notebooks/v4_decomposition.ipynb` | the swing decomposed into whiff / foul / in play, against a direct regression |
 | **`notebooks/v5_in_play.ipynb`** | a ball in play valued as events; the two outputs built on it |
+| **`notebooks/v6_shrink.ipynb`** | the personalized swing values shrunk toward the generic ones |
 | **`notebooks/final_models.ipynb`** | the two outputs refitted on every development season, saved, and scored on 2026 |
 
 Every model result is **held out**: each of 2023, 2024 and 2025 is scored by a
@@ -51,12 +52,12 @@ interval from resampling games; calibration checks the winner; the
 player-metric checks (below) are guardrails. They show a score is stable and
 plausible, but cannot show a model is right.
 
-### The two outputs (v5)
+### The two outputs (v5, v6)
 
 | output | question | chase \| zone-swing | zone-swing \| chase | split-half | YoY R² | Zone% \|r\| | next-season partial r |
 |---|---|---|---|---|---|---|---|
 | **generic** | a good decision for a typical hitter? | −0.910 | 0.689 | 0.816 | 0.583 | 0.276 | 0.094 |
-| **personalized** | a good decision for *this* hitter? | −0.864 | 0.576 | 0.844 | 0.606 | 0.198 | 0.159 |
+| **personalized** | a good decision for *this* hitter? | −0.888 | 0.627 | 0.833 | 0.598 | 0.224 | 0.144 |
 
 Both model a swing as what it produces — a whiff, a foul, or a ball in play —
 and a ball in play as one of six events (single, double, triple, home run, out,
@@ -64,11 +65,14 @@ error), each weighted by its run value in the count. Both use the full pitch
 frame (batter-frame location, handedness, velocity, movement, pitch type) and
 score each decision with `signed_edge`, the value of the chosen action minus the
 alternative. The personalized model adds each hitter's hot zone to the
-in-play-event model and his whiff and foul tendencies to the outcome model. It
-is the most accurate model found; its score is more reliable, less contaminated
-and more predictive, and tracks plate discipline less — by design, since the
-right decision for a hitter who punishes strikes differs from the right decision
-for a typical one. The two correlate 0.944 across hitter-seasons.
+in-play-event model and his whiff and foul tendencies to the outcome model, and
+keeps about two thirds of what those add (k = 0.68; v6): taken at full strength
+they overstated hitters' differences, as noisy two-season estimates do. It is
+the most accurate model found; its score is more reliable, less contaminated
+and more predictive, and tracks plate discipline a little less — by design,
+since the right decision for a hitter who punishes strikes differs from the
+right decision for a typical one. The two correlate 0.972 across
+hitter-seasons.
 
 ### The final models
 
@@ -79,10 +83,10 @@ and scores 2026 from the reloaded files. On 2026, out of regime, they hold up:
 | | swing MSE vs count-only | take MSE vs count-only | swing calibration slope |
 |---|---|---|---|
 | generic | −1.98% | −74.3% | 1.003 |
-| personalized | −2.12% | −74.5% | 0.948 |
+| personalized | −2.18% | −74.5% | 0.996 |
 
-The 2026 personalized leaderboard is led by Seager, Soto, Torres, Judge and
-Will Smith; Báez, Edmundo Sosa and Angel Martínez are at the bottom.
+The 2026 personalized leaderboard is led by Torres, Seager, Soto, Will Smith and
+Nick Kurtz; Báez, Edmundo Sosa and Angel Martínez are at the bottom.
 
 ### How the models were chosen
 
@@ -98,6 +102,7 @@ better; takes in brackets where they move):
 | + contact priors | −0.050% (−0.065, −0.035) |
 | a ball in play as events, vs regression (personalized) | −0.038% (−0.056, −0.018) |
 | the same, generic | −0.012% (−0.025, +0.002) — a tie |
+| keep two thirds of personalization (k = 0.68), vs all of it | −0.042% (−0.050, −0.032) |
 
 The swing figures are small because most of a swing's squared error is outcome
 luck; the paired comparison cancels it, which is why the intervals sit well
@@ -107,7 +112,7 @@ every time — contact skill cannot change an umpire's call.
 ### Each version
 
 Held out 2023–25 on the same personalized folds and learner. v1 and v2 score
-the value of the action taken, because that is their design; v3–v5 score
+the value of the action taken, because that is their design; v3–v6 score
 `signed_edge`. The model columns compare across every row; the player checks
 compare within a metric.
 
@@ -118,8 +123,9 @@ compare within a metric.
 | v3 — full pitch frame + hot zone | −1.93% | 1.042 | −70.1% | −0.887 | 0.660 | 0.844 | 0.630 | 0.172 | 0.166 |
 | v4 generic — decomposed, pitch frame | −1.95% | 1.044 | −70.1% | −0.914 | 0.706 | 0.816 | 0.583 | 0.270 | 0.100 |
 | v4 personalized — + hot zone, contact priors | −2.09% | 0.960 | −70.1% | −0.862 | 0.582 | 0.847 | 0.615 | 0.184 | 0.173 |
-| **v5 generic** — + in-play events | −1.96% | 1.017 | −70.1% | −0.910 | 0.689 | 0.816 | 0.583 | 0.276 | 0.094 |
-| **v5 personalized** — + in-play events | −2.12% | 0.956 | −70.1% | −0.864 | 0.576 | 0.844 | 0.606 | 0.198 | 0.159 |
+| **v5 generic** (unchanged in v6) — + in-play events | −1.96% | 1.017 | −70.1% | −0.910 | 0.689 | 0.816 | 0.583 | 0.276 | 0.094 |
+| v5 personalized — + in-play events | −2.12% | 0.956 | −70.1% | −0.864 | 0.576 | 0.844 | 0.606 | 0.198 | 0.159 |
+| **v6 personalized** — shrunk toward generic | −2.16% | 1.007 | −70.1% | −0.888 | 0.627 | 0.833 | 0.598 | 0.224 | 0.144 |
 
 **v1 → v2: not better.** The hull helps the swing model by 0.018% of MSE and
 hurts the take model by 0.27%, because v2 feeds a contact feature to a model of
@@ -155,6 +161,17 @@ rather than by the rule, so the two outputs differ only in their hitter
 features. It also makes personalization readable: a hitter's hot zone raises his
 home-run odds by up to 1.7 points and lowers his out odds by 2.2.
 
+**v5 → v6: personalization at two thirds strength.** The personalized swing
+model was steadily over-spread — its differences between pitches about 5% too
+large. Pulling its swing value two thirds of the way back toward the generic
+one, `q_generic + 0.68 · (q_personalized − q_generic)`, makes it more accurate
+in every held-out season (−0.042%) and calibrated (slope 0.95 → 1.01). k was
+fitted on held-out swings and came out the same in each season (0.66–0.73): the
+hitter priors point the right way but were believed about 1.5 times too
+strongly, as noisy two-season estimates are. Construct validity improves
+(−0.864 / +0.576 → −0.888 / +0.627); reliability and next-season validity give a
+little back.
+
 **The metric is a trade, not a clean win.** By the criterion fixed before any
 numbers, a sign-only score (+1 right, −1 wrong) has better construct validity.
 `signed_edge` keeps the run-value magnitude, as every published metric does,
@@ -162,18 +179,20 @@ and registers a feature that changes how much a swing is worth without
 flipping the decision. The magnitude carries a pitch-mix contamination the
 field shares and this project has not solved. It is worst on the generic
 output (Zone% r 0.379 with production held fixed) and smaller on the
-personalized one (0.331) — see [`FINDINGS.md`](FINDINGS.md).
+personalized one (0.350) — see [`FINDINGS.md`](FINDINGS.md).
 
-**Calibration is close, not exact.** v1's original fixed settings left the swing
-model's values about a fifth too compressed; every version now uses early
-stopping, which fixes most of it. The remainder (swing slopes 0.94–1.06 for the
-two outputs) varies from fold to fold, and two recalibration maps both failed
-to improve it, so the models are used as fitted.
+**Calibration is close.** v1's original fixed settings left the swing model's
+values about a fifth too compressed; every version now uses early stopping,
+which fixes most of it. Two linear recalibration maps then failed, because the
+remainder moved from fold to fold. What worked was the shrink: the personalized
+output's steady over-spread is gone (slopes 0.98–1.04 held out, 0.996 on 2026),
+and the generic output is close (0.98–1.06).
 
 **Against simple benchmarks**, O-Swing% is heavily contaminated (Zone% |r|
 0.421). Z-Swing% − O-Swing% is less contaminated than either output (0.114) and
-nearly as predictive as the personalized one (0.146 against 0.159), though less
-reliable — the benchmark to beat on contamination.
+as predictive as the personalized one (next-season 0.146 against 0.144), though
+less reliable (YoY 0.557 against 0.598) — the benchmark to beat on
+contamination and prediction.
 
 [`FINDINGS.md`](FINDINGS.md) collects what the data established — results, the
 metric analysis, what the EDA found (including the 2026 ABS measurement
@@ -209,11 +228,11 @@ every analysis starts from the same definitions.
 After running `notebooks/final_models.ipynb`:
 
 ```python
-from src.decomposition import load_models
+from src.decomposition import load_output
 from src.baselines import predict_both
 from src import decision as DEC
 
-model = load_models('models/personalized')          # or 'models/generic'
+model = load_output('models', 'personalized')       # or 'generic'; personalized comes back shrunk
 scored = DEC.add_scores(predict_both(pitches, model))   # q_take, q_swing, edge, signed_edge
 ```
 
@@ -226,27 +245,28 @@ and `features.season_contact_priors`. The 2026 scores are already in
 ## Layout
 
 ```
-src/data.py                 loading, caching, cleaning, 2026 harmonization, the common zone
-src/features.py             hitter features: prior-season hull, location surfaces (hot zone, contact priors)
-src/baselines.py            the two action models (take, swing), the shared learner, how they score a pitch
-src/decomposition.py        the whiff / foul / in-play swing model; save / load fitted models
-src/decision.py             the per-pitch decision scores (signed_edge selected)
-src/evaluate.py             folds, paired held-out accuracy, calibration, guardrail checks
+src/data.py                       loading, caching, cleaning, 2026 harmonization, the common zone
+src/features.py                   hitter features: prior-season hull, location surfaces (hot zone, contact priors)
+src/baselines.py                  the two action models (take, swing), the shared learner, how they score a pitch
+src/decomposition.py              the whiff / foul / in-play swing model; the shrunk personalized output; save / load
+src/decision.py                   the per-pitch decision scores (signed_edge selected)
+src/evaluate.py                   folds, paired held-out accuracy, calibration, guardrail checks
 
-notebooks/data_fetch.ipynb  Statcast pulls (Stats API season bounds, overseas games excluded)
-notebooks/eda.ipynb         exploratory analysis, §1–§7
-notebooks/v1_baseline.ipynb location + count
-notebooks/v2_baseline.ipynb v1 + nitro zone, de-leaked
-notebooks/v3.ipynb          metric choice, pitch frame, take-model check, hot-zone surface
+notebooks/data_fetch.ipynb        Statcast pulls (Stats API season bounds, overseas games excluded)
+notebooks/eda.ipynb               exploratory analysis, §1–§7
+notebooks/v1_baseline.ipynb       location + count
+notebooks/v2_baseline.ipynb       v1 + nitro zone, de-leaked
+notebooks/v3.ipynb                metric choice, pitch frame, take-model check, hot-zone surface
 notebooks/v4_decomposition.ipynb  swing decomposition vs direct twin
 notebooks/v5_in_play.ipynb        a ball in play valued as events; the two outputs
+notebooks/v6_shrink.ipynb         the personalized swing values shrunk toward the generic ones
 notebooks/final_models.ipynb      final models: fitted, saved, scored on 2026
 
-models/                     saved final models and 2026 scores (gitignored)
+models/                           saved final models and 2026 scores (gitignored)
+data/                             raw CSVs and parquet cache (gitignored)
 
-data/                       raw CSVs and parquet cache (gitignored)
-FINDINGS.md                 measured results and method notes
-AGENTS.md                   guidance for coding agents (CLAUDE.md imports it)
+FINDINGS.md                       measured results and method notes
+AGENTS.md                         guidance for coding agents (CLAUDE.md imports it)
 mlb_swing_decision_related_work.md
 ```
 

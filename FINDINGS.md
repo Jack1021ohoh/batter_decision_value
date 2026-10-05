@@ -55,27 +55,28 @@ cannot differ and the player checks are the only evidence.
 
 ## Results
 
-The score is reported two ways (`v5_in_play.ipynb`):
+The score is reported two ways (`v5_in_play.ipynb`, `v6_shrink.ipynb`):
 
 | output | question | chase\|zs | zs\|chase | split-half | YoY R² | Zone% \|r\| | next-season |
 |---|---|---|---|---|---|---|---|
 | **generic** | a good decision for a typical hitter? | −0.910 | 0.689 | 0.816 | 0.583 | 0.276 | 0.094 |
-| **personalized** | a good decision for *this* hitter? | −0.864 | 0.576 | 0.844 | 0.606 | 0.198 | 0.159 |
+| **personalized** | a good decision for *this* hitter? | −0.888 | 0.627 | 0.833 | 0.598 | 0.224 | 0.144 |
 
 Both value a swing by decomposing it — `P(whiff)·RE(whiff) + P(foul)·RE(foul) +
 P(in play)·E[value | in play]` — and a ball in play by the odds of each event,
 `Σ P(event)·RE(event, count)`, on the full pitch frame, scored with
 `signed_edge`. The personalized model adds the hitter's hot zone to the
-in-play-event model and his whiff and foul tendencies to the outcome classifier.
-It is the most accurate model found (swing MSE 2.12% below a count-only
-predictor, against 1.96% generic); its score is more reliable, less
-contaminated and more predictive, and tracks plate discipline less — by design.
-The two correlate 0.944 across hitter-seasons. Both are refitted on every
+in-play-event model and his whiff and foul tendencies to the outcome classifier,
+and keeps about two thirds of what they add to the swing value (k = 0.68; see
+"Shrinking personalization"). It is the most accurate model found (swing MSE
+2.16% below a count-only predictor, against 1.96% generic); its score is more
+reliable, less contaminated and more predictive, and tracks plate discipline a
+little less — by design. The two correlate 0.972 across hitter-seasons. Both are refitted on every
 development season and saved in `final_models.ipynb` (see "Final models and
 2026").
 
 **Each version**, held out on the same personalized folds and learner. v1 and
-v2 score the value of the action taken, as designed; v3–v5 score
+v2 score the value of the action taken, as designed; v3–v6 score
 `signed_edge`. The model columns compare across every row; the player checks
 compare within a metric.
 
@@ -88,6 +89,7 @@ compare within a metric.
 | v4 personalized | −2.09% | 0.960 | −70.1% | −0.862 | 0.582 | 0.847 | 0.615 | 0.184 | 0.173 |
 | v5 generic — + in-play events | −1.96% | 1.017 | −70.1% | −0.910 | 0.689 | 0.816 | 0.583 | 0.276 | 0.094 |
 | v5 personalized — + in-play events | −2.12% | 0.956 | −70.1% | −0.864 | 0.576 | 0.844 | 0.606 | 0.198 | 0.159 |
+| v6 personalized — shrunk toward generic | −2.16% | 1.007 | −70.1% | −0.888 | 0.627 | 0.833 | 0.598 | 0.224 | 0.144 |
 
 - **v1 → v2: not a better model.** The hull improves the swing model by 0.018%
   of MSE and worsens the take model by 0.27%, since v2 feeds a contact feature
@@ -107,6 +109,10 @@ compare within a metric.
 - **v4 → v5: a ball in play as events.** More accurate for the personalized
   output (−0.038%), a tie for the generic one; both adopt it (see "Valuing a
   ball in play as events").
+- **v5 → v6: personalization at two thirds strength.** The personalized swing
+  value shrunk toward the generic one is more accurate in every held-out season
+  (−0.042%) and calibrated (see "Shrinking personalization"). The generic
+  output is unchanged.
 
 ---
 
@@ -151,8 +157,8 @@ feature that changes how much a swing is worth without flipping the decision.
 Magnitude-weighted scores can be contaminated by pitch mix. Zone% against the
 score, with something held fixed (`v3.ipynb`; "v3" is that notebook's selected
 model — the direct regression on the full pitch frame with the hot zone, as
-recalibrated there). The two outputs in use are measured the same way in
-`v5_in_play.ipynb`, below.
+recalibrated there). The two outputs are measured the same way in
+`v5_in_play.ipynb` and `v6_shrink.ipynb`, below.
 
 | model | score | raw | \| correct-decision rate | \| chase, zone-swing | \| production |
 |---|---|---|---|---|---|
@@ -175,20 +181,22 @@ score's correlation — `signed_edge`'s from 0.172 to 0.301.
 **`correct_decision` is cleaner on v1's features but not on v3's**; the hot zone
 closes the gap.
 
-**On the two outputs in use** (`v5_in_play.ipynb`):
+**On the outputs** (`v5_in_play.ipynb`; the shrunk row from `v6_shrink.ipynb`):
 
 | output | score | raw | \| correct-decision rate | \| chase, zone-swing | \| production |
 |---|---|---|---|---|---|
 | generic | `signed_edge` | 0.276 | 0.129 | −0.044 | 0.379 |
 | generic | `correct_decision` | 0.245 | *(circular)* | 0.110 | 0.339 |
-| personalized | `signed_edge` | 0.198 | −0.047 | −0.193 | 0.331 |
-| personalized | `correct_decision` | 0.252 | *(circular)* | 0.067 | 0.355 |
+| personalized, unshrunk | `signed_edge` | 0.198 | −0.047 | −0.193 | 0.331 |
+| personalized, unshrunk | `correct_decision` | 0.252 | *(circular)* | 0.067 | 0.355 |
+| **personalized (in use, shrunk)** | `signed_edge` | 0.224 | 0.009 | −0.162 | 0.350 |
 
 The same pattern: **without hitter features `signed_edge` is the more
 contaminated score** — the generic output's is the highest of any score here,
 0.379 with production held fixed — **and with them it is the less
-contaminated one** (personalized 0.198 raw and 0.331 against 0.252 and 0.355
-for `correct_decision`). A hitter's opportunities feed the magnitude of his
+contaminated one** (unshrunk personalized 0.198 raw and 0.331 against 0.252 and
+0.355 for `correct_decision`). The shrunk output in use sits between the two it
+blends (0.224 and 0.350). A hitter's opportunities feed the magnitude of his
 edges unless the model knows what that hitter does with them.
 
 **Rescaling cannot fix it** — z-score, OPS+-style ratio and percentile rank
@@ -261,14 +269,15 @@ predicted value, 1.18–1.26 with every interval above 1. Early stopping brings 
 to 0.99–1.09 (`v1_baseline.ipynb`). Hyperparameters are pipeline, not design, so
 every version uses the early-stopping learner.
 
-**Calibration is close but not exact, and two repairs failed.** For the two
-outputs, take slopes are 0.99–1.00 and swing slopes 0.94–1.06: the generic
-output slightly compressed in 2023, whose fold trains on one season, the
-personalized one slightly over-spread. A linear map fitted on
+**Calibration: two repairs failed, the third worked.** A linear map fitted on
 early-stopping games left swing MSE unchanged and swing calibration worse in two
 of three seasons; one fitted on the previous held-out season over-corrected and
-made MSE worse. The residual varies from fold to fold, so neither map could predict it; the models
-are used as fitted.
+made MSE worse — the residual moved from fold to fold, so neither map could
+predict it. What did not move was the personalized model's over-spread (slopes
+0.935–0.980 held out, 0.948 on 2026), and shrinking toward the generic model
+removed it (0.981–1.039 held out, 0.996 on 2026). The generic output is close
+(0.98–1.06, slightly compressed in 2023, whose fold trains on one season); take
+slopes are 0.99–1.00.
 
 **Where `Q_swing` is extrapolated it is slightly too generous.** It can only be
 checked on pitches someone swung at. On swings at pitches the league swings at
@@ -383,10 +392,33 @@ expected. Personalization moves the event odds as it should: on pitches in a
 hitter's hottest zones it raises P(home run) by 1.7 percentage points and
 P(double) by 0.7, and lowers P(out) by 2.2.
 
+### Shrinking personalization (`v6_shrink.ipynb`)
+
+The personalized swing model was steadily over-spread: its differences between
+pitches about 5% larger than what happened. v6 pulls its swing value part-way
+back toward the generic model, shrinking only what personalization adds:
+
+```
+q_swing = q_generic + k · (q_personalized − q_generic)
+```
+
+k has a closed-form least-squares solution on held-out swings; each held-out
+season uses a k fitted on the other two. It is stable — 0.73, 0.66 and 0.67 —
+and 0.685 from all three, which the final model uses.
+
+**Adopted by the rule.** The shrunk model is more accurate in every held-out
+season (−0.067%, −0.028%, −0.030%; pooled −0.042%, interval −0.050% to −0.032%)
+and on 2026 (−0.060%), and calibrated. The hitter priors point the right way but
+were believed about 1.5 times too strongly — two seasons of a hitter's contact
+are partly luck, and he regresses toward the typical hitter. Construct validity
+improves (−0.864 / +0.576 → −0.888 / +0.627); YoY (0.606 → 0.598), Zone%
+contamination (0.198 → 0.224) and next-season validity (0.159 → 0.144) give a
+little back.
+
 **Benchmarks.** O-Swing% is heavily contaminated (Zone% |r| 0.421) and weakly
 predictive (0.077). Z-Swing% − O-Swing% is less contaminated than either output
-(0.114) and nearly as predictive as the personalized one (0.146 against 0.159),
-though less reliable (YoY 0.557).
+(0.114) and as predictive as the personalized one (0.146 against 0.144), though
+less reliable (YoY 0.557 against 0.598).
 
 ---
 
@@ -401,14 +433,15 @@ clean test; nothing in the design changes because of it.
 | | swing MSE vs count-only | take MSE vs count-only | swing calibration slope (95% interval) |
 |---|---|---|---|
 | generic | −1.98% | −74.3% | 1.003 (0.979, 1.023) |
-| personalized | −2.12% | −74.5% | 0.948 (0.924, 0.970) |
+| personalized (shrunk) | −2.18% | −74.5% | 0.996 (0.973, 1.017) |
 
 **The models carry over to the first ABS season.** Swing accuracy matches the
 held-out 2023–25 seasons; take accuracy is higher (74% against ~70%), as
-expected when calls follow a fixed zone. The score's split-half reliability is
-0.800 (generic) and 0.829 (personalized); its construct partials are lower than
-held out (−0.893 / +0.659 and −0.820 / +0.490), and the two outputs' hitter
-scores correlate 0.926.
+expected when calls follow a fixed zone. Both are calibrated; without the
+shrink the personalized slope would be 0.948. The score's split-half
+reliability is 0.800 (generic) and 0.815 (personalized); its construct partials
+are lower than held out (−0.893 / +0.659 and −0.855 / +0.558), and the two
+outputs' hitter scores correlate 0.963.
 
 ---
 
@@ -493,6 +526,10 @@ against 16–30 later. Overseas games are dropped; Toronto is kept.
 - **One zone definition for every season.** Using each season's own
   `sz_top`/`sz_bot` changes the meaning of "in the zone" at the 2025/2026
   boundary; so does applying the ball radius on some edges and not others.
+- **Shrink hitter-specific adjustments, not just hitter estimates.** The hot
+  zone was already shrunk toward the league, yet the model built on it still
+  overstated hitters' differences; shrinking the personalized prediction toward
+  the generic one fixed accuracy and calibration together.
 - **Judge a feature by the best available estimator, not the naive one.** The
   hot zone goes from r ≈ 0.30 to ≈ 0.68 with no new data.
 - **Prior-window features drift when the window grows.** With every prior
