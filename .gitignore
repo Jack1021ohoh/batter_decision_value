@@ -25,3 +25,6 @@ IMPROVEMENT_PLAN.md
 # Saved final models (XGBoost files + metadata) and the scores they produce.
 # Rebuilt by notebooks/final_models.ipynb; binary and season-specific.
 models/
+
+# Dashboard tables, rebuilt from models/ by dashboard/build_data.py.
+dashboard/data/

@@ -33,6 +33,7 @@ This framework separates the two.
 | **`notebooks/v5_in_play.ipynb`** | a ball in play valued as events; the two outputs built on it |
 | **`notebooks/v6_shrink.ipynb`** | the personalized swing values shrunk toward the generic ones |
 | **`notebooks/final_models.ipynb`** | the two outputs refitted on every development season, saved, and scored on 2026 |
+| **`dashboard/`** | a Streamlit app for the 2026 scores — leaderboard, hitter pages, comparisons |
 
 Every model result is **held out**: each of 2023, 2024 and 2025 is scored by a
 model that never saw it. 2026 is kept out of model selection, but it is not a
@@ -242,6 +243,23 @@ and `features.season_contact_priors`. The 2026 scores are already in
 `models/pitch_values_2026.parquet` (per pitch, both outputs) and
 `models/hitter_scores_2026.parquet` (per qualified hitter, with names).
 
+### Dashboard
+
+A Streamlit app over the 2026 scores, for either output: a searchable
+leaderboard; a page per hitter with his decision value by location (swings and
+takes), by count and through the season, and his best and costliest decisions;
+two hitters side by side; and a page explaining the method.
+
+```bash
+uv sync --group dashboard
+uv run python dashboard/build_data.py     # after final_models.ipynb; ~1 s
+uv run streamlit run dashboard/app.py
+```
+
+`build_data.py` aggregates `models/*_2026.parquet` into the small tables the
+app reads (`dashboard/data/`, gitignored); re-run it whenever the final models
+are refitted.
+
 ## Layout
 
 ```
@@ -262,7 +280,11 @@ notebooks/v5_in_play.ipynb        a ball in play valued as events; the two outpu
 notebooks/v6_shrink.ipynb         the personalized swing values shrunk toward the generic ones
 notebooks/final_models.ipynb      final models: fitted, saved, scored on 2026
 
+dashboard/build_data.py           aggregates the 2026 scores into the dashboard's tables
+dashboard/app.py                  the Streamlit dashboard
+
 models/                           saved final models and 2026 scores (gitignored)
+dashboard/data/                   the dashboard's tables (gitignored)
 data/                             raw CSVs and parquet cache (gitignored)
 
 FINDINGS.md                       measured results and method notes

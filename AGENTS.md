@@ -151,6 +151,11 @@ belong in `FINDINGS.md`, not there.
 - `models/` (gitignored) holds the saved final models and the 2026 scores
   (`pitch_values_2026.parquet`, `hitter_scores_2026.parquet`), rebuilt by
   `final_models.ipynb`.
+- `dashboard/` — a Streamlit app over the 2026 scores (`dashboard` dependency
+  group). `build_data.py` aggregates `models/*_2026.parquet` into
+  `dashboard/data/` (gitignored), which `app.py` reads; re-run it after the
+  final models are refitted. It only displays saved scores — no model logic
+  lives there.
 - Key EDA results now in `FINDINGS.md`: ABS band is exactly
   27%–53.5% of height; run values drift 0.007 runs on a pitch-weighted
   average and ≤0.021 for the cells covering 95% of pitches (one table per

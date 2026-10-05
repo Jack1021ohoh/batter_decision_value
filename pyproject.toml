@@ -19,6 +19,10 @@ dependencies = [
 ]
 
 [dependency-groups]
+dashboard = [
+    "plotly>=7.1.0",
+    "streamlit>=1.65.0",
+]
 dev = [
     "ipykernel>=7.3.0",
     "jupyterlab>=4.6.3",
