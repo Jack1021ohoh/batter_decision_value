@@ -245,7 +245,7 @@ and `features.season_contact_priors`. The 2026 scores are already in
 
 ### Dashboard
 
-A Streamlit app over the 2026 scores, for either output: a searchable
+A Streamlit app over the 2026 personalized scores — the most accurate model: a searchable
 leaderboard (click a row to open that hitter); a page per hitter with
 Savant-style percentile rankings, his decision value by location (swings and
 takes), by count and through the season, and his best and costliest decisions;

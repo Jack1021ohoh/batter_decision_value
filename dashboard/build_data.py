@@ -7,7 +7,8 @@ Re-run whenever the final models are refitted:
     uv run python dashboard/build_data.py
 
 Every value is per pitch in runs, from `signed_edge` -- the value of the chosen
-action minus the alternative -- for both outputs. The location grid is in the
+action minus the alternative -- for the personalized output, the only one the
+dashboard shows. The location grid is in the
 batter's frame (positive x = inside) with height normalised to his common zone
 (0 = bottom, 1 = top), so maps are comparable across hitters.
 """
@@ -27,7 +28,7 @@ from src import data as D  # noqa: E402
 SEASON = 2026
 MODEL_DIR = ROOT / 'models'
 OUT = Path(__file__).resolve().parent / 'data'
-OUTPUTS = ('generic', 'personalized')
+OUTPUTS = ('personalized',)
 
 #: Location grid, batter frame: x in feet, height as a fraction of the zone.
 X_EDGES = np.round(np.arange(-2.2, 2.2001, 0.4), 3)
@@ -50,12 +51,11 @@ def percentile(s: pd.Series, higher_is_better: bool = True) -> pd.Series:
 
 
 def hitter_table(hitters: pd.DataFrame, p: pd.DataFrame) -> pd.DataFrame:
-    """One row per qualified hitter: both scores, ranks, percentiles, swing rates."""
-    h = hitters.copy()
+    """One row per qualified hitter: score, rank, percentiles, swing rates."""
+    h = hitters.drop(columns=['raw_generic', 'generic'])
     for out in OUTPUTS:
         h[f'rank_{out}'] = h[out].rank(ascending=False, method='min').astype(int)
         h[f'pct_{out}'] = percentile(h[out])
-    h['gap'] = h['personalized'] - h['generic']
     g = p.groupby('batter')
     swings = p[p['swing']]
     two_strike = p[p['count'].str.endswith('-2')]

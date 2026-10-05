@@ -22,7 +22,9 @@ from plotly.subplots import make_subplots
 
 DATA = Path(__file__).resolve().parent / 'data'
 SEASON = 2026
-OUTPUT_LABELS = {'personalized': 'Personalized — for this hitter', 'generic': 'Generic — for a typical hitter'}
+# The personalized output only: the most accurate model, and the one this app is about.
+# The generic output (a typical hitter) answers a different question; see the About page.
+OUT = 'personalized'
 PLATE_HALF_WIDTH = 17 / 24
 MIN_CELL = 3          # hide map cells with fewer pitches than this
 ROLL_GAMES = 15
@@ -56,7 +58,6 @@ NAMES = dict(zip(H['batter'], H['name'].fillna(H['batter'].astype(str))))
 st.sidebar.title('Batter Decision Value')
 st.sidebar.caption(f'{SEASON} regular season · {len(H)} qualified hitters (≥500 pitches)')
 page = st.sidebar.radio('Page', ['Leaderboard', 'Hitter', 'Compare', 'About'], key='page')
-out = st.sidebar.radio('Output', list(OUTPUT_LABELS), format_func=OUTPUT_LABELS.get)
 st.sidebar.caption('Scores: 100 = average qualified hitter, 10 points = one standard deviation.')
 
 
@@ -84,27 +85,24 @@ def styled(fig: go.Figure, **layout) -> go.Figure:
 def score_cards(b: int, cols=None) -> None:
     r = H.set_index('batter').loc[b]
     cols = cols or st.columns(5)
-    cols[0].metric(f'{out.capitalize()} score', f"{r[out]:.1f}",
+    cols[0].metric('Decision score', f"{r[OUT]:.1f}",
                    help='100 = average qualified hitter; 10 points = one standard deviation')
-    cols[1].metric('Rank', f"{int(r[f'rank_{out}'])} / {len(H)}", f"{r[f'pct_{out}']:.0f}th percentile",
+    cols[1].metric('Rank', f"{int(r[f'rank_{OUT}'])} / {len(H)}", f"{r[f'pct_{OUT}']:.0f}th percentile",
                    delta_color='off')
-    other = 'generic' if out == 'personalized' else 'personalized'
-    cols[2].metric(f'{other.capitalize()} score', f"{r[other]:.1f}")
-    cols[3].metric('Chase rate', f"{r['chase_rate']:.1%}", help='Swings at pitches outside the zone')
-    cols[4].metric('Zone-swing rate', f"{r['zone_swing_rate']:.1%}", help='Swings at pitches in the zone')
+    cols[2].metric('Chase rate', f"{r['chase_rate']:.1%}", help='Swings at pitches outside the zone')
+    cols[3].metric('Zone-swing rate', f"{r['zone_swing_rate']:.1%}", help='Swings at pitches in the zone')
+    cols[4].metric('Whiff rate', f"{r['whiff_rate']:.1%}", help='Swings and misses per swing')
 
 
 def percentile_chart(b: int) -> go.Figure:
     """Savant-style percentile rankings among qualified hitters (100 = best)."""
     r = H.set_index('batter').loc[b]
-    other = 'generic' if out == 'personalized' else 'personalized'
     runs = lambda v: f'{v * 100:+.2f}'
     rows = [  # label, percentile column, value shown
-        (f'Decision score ({out})', f'pct_{out}', f'{r[out]:.1f}'),
-        (f'Decision score ({other})', f'pct_{other}', f'{r[other]:.1f}'),
-        ('Decisions in the zone', f'pct_zone_value_{out}', runs(r[f'zone_value_{out}'])),
-        ('Decisions out of the zone', f'pct_chase_value_{out}', runs(r[f'chase_value_{out}'])),
-        ('Two-strike decisions', f'pct_two_strike_value_{out}', runs(r[f'two_strike_value_{out}'])),
+        ('Decision score', f'pct_{OUT}', f'{r[OUT]:.1f}'),
+        ('Decisions in the zone', f'pct_zone_value_{OUT}', runs(r[f'zone_value_{OUT}'])),
+        ('Decisions out of the zone', f'pct_chase_value_{OUT}', runs(r[f'chase_value_{OUT}'])),
+        ('Two-strike decisions', f'pct_two_strike_value_{OUT}', runs(r[f'two_strike_value_{OUT}'])),
         ('Chase %', 'pct_chase_rate', f"{r['chase_rate']:.1%}"),
         ('Whiff %', 'pct_whiff_rate', f"{r['whiff_rate']:.1%}"),
     ]
@@ -136,7 +134,7 @@ def decision_map(b: int, title: str = '') -> go.Figure:
     fig = make_subplots(1, 2, subplot_titles=('When he swung', 'When he took'), horizontal_spacing=0.08)
     for k, action in enumerate(['swing', 'take'], start=1):
         a = d[d['action'] == action]
-        grid = a.pivot_table(index='z', columns='x', values=f'value_{out}').reindex(index=zs, columns=xs) * 100
+        grid = a.pivot_table(index='z', columns='x', values=f'value_{OUT}').reindex(index=zs, columns=xs) * 100
         n = a.pivot_table(index='z', columns='x', values='n').reindex(index=zs, columns=xs)
         fig.add_trace(go.Heatmap(
             x=xs, y=zs, z=grid.values, customdata=n.values, zmid=0, zmin=-12, zmax=12,
@@ -157,9 +155,9 @@ def count_chart(b: int) -> go.Figure:
     order = ['0-0', '1-0', '2-0', '3-0', '0-1', '1-1', '2-1', '3-1', '0-2', '1-2', '2-2', '3-2']
     d = d.reindex(order)
     fig = go.Figure([
-        go.Bar(x=order, y=d[f'value_{out}'] * 100, name=NAMES[b],
+        go.Bar(x=order, y=d[f'value_{OUT}'] * 100, name=NAMES[b],
                customdata=d['n'], hovertemplate='%{x}: %{y:+.2f} runs / 100 (%{customdata} pitches)<extra></extra>'),
-        go.Scatter(x=order, y=d[f'league_{out}'] * 100, name='league', mode='markers',
+        go.Scatter(x=order, y=d[f'league_{OUT}'] * 100, name='league', mode='markers',
                    marker=dict(symbol='line-ew-open', size=24, color='black', line=dict(width=2))),
     ])
     return styled(fig, height=360, yaxis_title='runs / 100 pitches', margin=dict(t=30, b=20),
@@ -168,8 +166,8 @@ def count_chart(b: int) -> go.Figure:
 
 def trend_chart(b: int) -> go.Figure:
     d = T['dates'][T['dates']['batter'] == b].sort_values('game_date')
-    roll = d[f'sum_{out}'].rolling(ROLL_GAMES, min_periods=5).sum() / d['n'].rolling(ROLL_GAMES, min_periods=5).sum()
-    league = T['league'][f'value_{out}'].iloc[0]
+    roll = d[f'sum_{OUT}'].rolling(ROLL_GAMES, min_periods=5).sum() / d['n'].rolling(ROLL_GAMES, min_periods=5).sum()
+    league = T['league'][f'value_{OUT}'].iloc[0]
     fig = go.Figure([go.Scatter(x=d['game_date'], y=roll * 100, mode='lines', name=f'{ROLL_GAMES}-game rolling'),
                      go.Scatter(x=d['game_date'], y=[league * 100] * len(d), mode='lines', name='league',
                                 line=dict(dash='dot', color='grey'))])
@@ -179,7 +177,7 @@ def trend_chart(b: int) -> go.Figure:
 
 def decisions_table(b: int, kind: str) -> pd.DataFrame:
     d = T['top_decisions']
-    d = d[(d['batter'] == b) & (d['output'] == out) & (d['kind'] == kind)]
+    d = d[(d['batter'] == b) & (d['output'] == OUT) & (d['kind'] == kind)]
     d = d.sort_values('signed_edge', ascending=(kind == 'worst'))
     return pd.DataFrame({
         'date': pd.to_datetime(d['game_date']).dt.date, 'count': d['count'], 'pitch': d['pitch_type'],
@@ -194,23 +192,22 @@ def decisions_table(b: int, kind: str) -> pd.DataFrame:
 
 if page == 'Leaderboard':
     st.title(f'{SEASON} leaderboard')
-    st.caption(f'{OUTPUT_LABELS[out]} · click a row to open the hitter\'s page')
+    st.caption('Click a row to open the hitter\'s page.')
     c1, c2 = st.columns([2, 1])
     query = c1.text_input('Search hitter', '')
     min_p = c2.slider('Minimum pitches', 500, int(H['pitches'].max()), 500, step=100)
     t = H[(H['pitches'] >= min_p) & H['name'].fillna('').str.contains(query, case=False)]
-    t = t.sort_values(out, ascending=False)
-    other = 'generic' if out == 'personalized' else 'personalized'
+    t = t.sort_values(OUT, ascending=False)
     st.dataframe(pd.DataFrame({
-        'rank': t[f'rank_{out}'], 'hitter': t['name'], 'score': t[out].round(1),
-        'percentile': t[f'pct_{out}'], f'{other} score': t[other].round(1),
-        'personalized − generic': t['gap'].round(1), 'pitches': t['pitches'],
+        'rank': t[f'rank_{OUT}'], 'hitter': t['name'], 'score': t[OUT].round(1),
+        'percentile': t[f'pct_{OUT}'], 'pitches': t['pitches'],
         'chase %': (t['chase_rate'] * 100).round(1), 'zone swing %': (t['zone_swing_rate'] * 100).round(1),
+        'whiff %': (t['whiff_rate'] * 100).round(1),
     }), hide_index=True, width='stretch', height=640, key='leaderboard',
         on_select=partial(open_hitter, t['batter'].tolist()), selection_mode='single-row')
 
 elif page == 'Hitter':
-    b = hitter_picker('Hitter', 'hitter', default=H.sort_values(out, ascending=False)['name'].iloc[0])
+    b = hitter_picker('Hitter', 'hitter', default=H.sort_values(OUT, ascending=False)['name'].iloc[0])
     st.title(NAMES[b])
     score_cards(b)
     st.subheader('Percentile rankings')
@@ -235,7 +232,7 @@ elif page == 'Hitter':
 
 elif page == 'Compare':
     st.title('Compare two hitters')
-    ranked = H.sort_values(out, ascending=False)['name']
+    ranked = H.sort_values(OUT, ascending=False)['name']
     c1, c2 = st.columns(2)
     with c1:
         a = hitter_picker('First hitter', 'cmp_a', default=ranked.iloc[0])
@@ -261,12 +258,13 @@ hitter chose minus the alternative. A hitter's score is his average decision
 value, scaled so that 100 is the average qualified hitter and 10 points is one
 standard deviation.
 
-**Two versions.**
-- **Generic** asks whether each decision was good *for a typical hitter*.
-- **Personalized** asks whether it was good *for this hitter*: it adds his hot
-  zone and his whiff and foul tendencies, kept at about two thirds strength.
-  A slugger gains when he attacks pitches he damages; a contact hitter is not
-  punished for swings that suit him.
+**Good for this hitter.** The swing model knows the hitter: his hot zone and
+his whiff and foul tendencies from the two previous seasons, kept at about two
+thirds strength. A slugger gains when he attacks pitches he damages; a contact
+hitter is not punished for swings that suit him. This was the most accurate
+model on held-out seasons. The project also has a generic version, which asks
+whether a decision was good for a typical hitter; it answers a different
+question and is not shown here.
 
 **Caveats.**
 - {SEASON} is the first season under the automated ball-strike system. The
