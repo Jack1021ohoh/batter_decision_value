@@ -93,7 +93,9 @@ belong in `FINDINGS.md`, not there.
     by predicted value — the whole model), `bin_calibration` (by location ×
     count — cannot credit within-cell features), `propensity_calibration`
     with `swing_propensity` (is `Q_swing` sound where it is extrapolated),
-    `outcome_diagnostics` for the decomposed classifier.
+    `outcome_diagnostics` for the decomposed classifier,
+    `in_play_diagnostics` for the in-play event classifier;
+    `paired_accuracy(..., rows='in_play')` scores the in-play branch alone.
     `recalibrate_last_season` was tried and rejected (over-corrects).
   - **Guardrails:** `harness()` returns one scorecard row (model columns, then
     construct validity, `split_half`, `yoy_reliability`,
@@ -104,10 +106,13 @@ belong in `FINDINGS.md`, not there.
     own training seasons, separately. Also `whiff_auc`,
     `rmse_vs_count_baseline`.
 - `src/decomposition.py` — the whiff / foul / in-play swing model behind both
-  outputs.
-  `fit_decomposed` shares `fit_take` with `fit_direct`, so the twins' `Q_take`
-  is identical (asserted in the notebook). Contact priors route to the
-  classifier, damage priors to the in-play value model.
+  outputs. `fit_decomposed` shares `fit_take` with `fit_direct`, so the twins'
+  `Q_take` is identical (asserted in the notebook). Contact priors route to the
+  outcome classifier, damage priors to the in-play model.
+  `in_play='classifier'` (used by both outputs) values a ball in play as
+  `Σ P(event)·RE(event, count)` over six events; `'regression'` (the default,
+  kept so v4 reproduces) regresses its run value. `save_models` /
+  `load_models` write and rebuild a fitted model (XGBoost files + metadata).
 - `src/decision.py` — the per-pitch scores, swappable: `chosen_value`,
   `signed_edge`, `regret`, `close_weighted`, `correct_decision`.
   `DEFAULT_SCORE = 'signed_edge'` — keeps the run-value magnitude, as every
@@ -127,8 +132,17 @@ belong in `FINDINGS.md`, not there.
   See FINDINGS.md.
 - `notebooks/` — `data_fetch.ipynb` (the pulls), `eda.ipynb` (§1–§7, ends in a
   decisions table), `v1_baseline.ipynb`, `v2_baseline.ipynb`, and `v3.ipynb`
-  (the patch), `v4_decomposition.ipynb` (Track B). All do
-  `sys.path.insert(0, '..')`. The model notebooks load 2021–2025 only.
+  (the patch), `v4_decomposition.ipynb` (Track B), `v5_in_play.ipynb` (the
+  in-play event classifier and the two outputs), and `final_models.ipynb` (the
+  outputs refitted on every development season, saved to `models/`, and scored
+  on 2026). All do `sys.path.insert(0, '..')`. The model-selection notebooks
+  load 2021–2025 only; `final_models.ipynb` also loads 2026, to score it.
+- **Keep each experiment in its own notebook.** A notebook re-runs end to end,
+  so adding a section to an existing one ties every small decision to
+  re-fitting everything before it. v5 exists for that reason.
+- `models/` (gitignored) holds the saved final models and the 2026 scores
+  (`pitch_values_2026.parquet`, `hitter_scores_2026.parquet`), rebuilt by
+  `final_models.ipynb`.
 - Key EDA results now in `FINDINGS.md`: ABS band is exactly
   27%–53.5% of height; run values drift 0.007 runs on a pitch-weighted
   average and ≤0.021 for the cells covering 95% of pitches (one table per
@@ -170,9 +184,9 @@ belong in `FINDINGS.md`, not there.
   training seasons. Whenever a personalized variant is in a comparison, every
   row uses `PERSONALIZED_FOLDS`. 2026 is **not** a clean test — earlier
   versions scored it and printed a 2026 leaderboard — so describe it as a
-  previously inspected, out-of-regime evaluation. The final step keeps two
-  models, A (through 2024) and B (through 2025), and scores 2026 with both. The
-  confirmatory test is 2027. That does not keep 2026 out of training: once
+  previously inspected, out-of-regime evaluation. That evaluation is done:
+  `final_models.ipynb` fits each output through 2025 and scores 2026 once.
+  The confirmatory test is 2027. That does not keep 2026 out of training: once
   2027 is complete, 2026 is ordinary data — training, and a held-out fold for
   selection (the only ABS-regime one) — the final model is fitted through
   2026, and 2027 is scored once after every decision is locked.
@@ -184,12 +198,15 @@ belong in `FINDINGS.md`, not there.
     right. Never read swing accuracy as a % improvement over count-only in
     isolation — outcome luck dominates the level; the paired difference is
     what counts.
-  - **Two outputs**, both the decomposed swing model on the full pitch frame
-    with `signed_edge`: **generic** (no hitter features — a good decision for a
-    typical hitter) and **personalized** (+ hot zone to the in-play value,
-    + whiff/foul priors to the outcome classifier — a good decision for this
-    hitter; the most accurate model found). The personalized score tracks plate
-    discipline less, by design.
+  - **Two outputs**, both the decomposed swing model with the in-play event
+    classifier, on the full pitch frame, with `signed_edge`: **generic** (no
+    hitter features — a good decision for a typical hitter) and
+    **personalized** (+ hot zone to the in-play model, + whiff/foul priors to
+    the outcome classifier — a good decision for this hitter; the most accurate
+    model found). The personalized score tracks plate discipline less, by
+    design. The event classifier beat the in-play regression for the
+    personalized output and tied for the generic one, which uses it by decision
+    so both outputs differ only in hitter features (v5).
   - **The decomposition beats the direct regression on accuracy** (swing MSE
     −0.085% generic, −0.109% with the hot zone, intervals excluding 0) while
     leaving the score almost unchanged (r = 0.998). An earlier "tie" came from
