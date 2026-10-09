@@ -51,6 +51,11 @@ re-runs:
 The metric choice is the exception: there the model is held fixed, so accuracy
 cannot differ and the player checks are the only evidence.
 
+Twice a choice departs from the rule, each recorded where it is made: the
+generic output adopts the in-play event classifier on a tie (v5), and
+`signed_edge` is kept although `correct_decision` wins the metric criterion
+(see "Choosing the per-pitch score").
+
 ---
 
 ## Results
